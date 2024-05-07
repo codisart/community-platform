@@ -2,91 +2,92 @@
 Switch config dependent on use case
 
 For our use case the production config is stored in environment variables passed from
-Travis-CI. You can replace this with your own config or use the same pattern to keep
+CI. You can replace this with your own config or use the same pattern to keep
 api keys secret. Note, create-react-app only passes environment variables prefixed with
-'REACT_APP'. The required info has been encrypted and stored in travis. 
+'REACT_APP'. The required info has been encrypted and stored in a circleCI deployment context.
 
 Dev config is hardcoded - You can find more information about potential security risk here:
 https://javebratt.com/hide-firebase-api/
 *****************************************************************************************/
 
-/*********************************************************************************************** /
-                                        Dev/Staging
-/********************************************************************************************** */
+import type { UserRole } from '../models'
+import type { ConfigurationOption } from './constants'
+import type { IFirebaseConfig, ISentryConfig, siteVariants } from './types'
 
-let sentryConfig: ISentryConfig = {
-  dsn: 'https://8c1f7eb4892e48b18956af087bdfa3ac@sentry.io/1399729',
+/**
+ * Helper function to load configuration property
+ * from the global configuration object
+ * During the development cycle this will be process.env
+ * when running this application with the output of `yarn build`
+ * we will instead load from the global window
+ *
+ * @param property
+ * @param fallbackValue - optional fallback value
+ * @returns string
+ */
+const _c = (property: ConfigurationOption, fallbackValue?: string): string => {
+  const configurationSource = ['development', 'test'].includes(
+    process.env.NODE_ENV,
+  )
+    ? process.env
+    : window?.__OA_COMMUNITY_PLATFORM_CONFIGURATION
+  return configurationSource?.[property] || fallbackValue
 }
-// note - algolia lets you have multiple apps which can serve different purposes
-// (and all have their own free quotas)
-let algoliaSearchConfig: IAlgoliaConfig = {
-  searchOnlyAPIKey: 'af213b7fb41ac5cbc6a2e10164370779',
-  applicationID: '4RM0GZKTOC',
-}
-let algoliaPlacesConfig: IAlgoliaConfig = {
-  searchOnlyAPIKey: 'bd622e6c60cc48e571e47b9f6ff63489',
-  applicationID: 'plG9OH6JI4BR',
-}
+
+export const getConfigurationOption = _c
+
 /*********************************************************************************************** /
                                         Site Variants
 /********************************************************************************************** */
-const e = process.env
-// the name of the github branch is passed via travis as an environment variable
-const branch = e.REACT_APP_BRANCH as string
-// as both dev.onearmy.world and onearmy.world are production builds we can't use process.env to distinguish
-// will be set to one of 'localhost', 'staging' or 'production'
 
-function getSiteVariant(
-  gitBranch: string,
-  env: typeof process.env,
-): siteVariants {
-  const url = new URL(window.location.href)
-  const siteParam = url.searchParams.get('site')
-  if (env.REACT_APP_SITE_VARIANT === 'test-ci') {
-    return 'test-ci'
-  }
-  if (env.REACT_APP_SITE_VARIANT === 'preview' || siteParam === 'preview') {
+// On dev sites user can override default role
+const devSiteRole: UserRole = localStorage.getItem('devSiteRole') as UserRole
+
+const getSiteVariant = (): siteVariants => {
+  const devSiteVariant: siteVariants = localStorage.getItem(
+    'devSiteVariant',
+  ) as any
+
+  if (devSiteVariant === 'preview') {
     return 'preview'
   }
-  switch (gitBranch) {
+  if (devSiteVariant === 'emulated_site') {
+    return 'emulated_site'
+  }
+  if (devSiteVariant === 'dev_site') {
+    return 'dev_site'
+  }
+  if (location.host === 'localhost:4000') {
+    return 'emulated_site'
+  }
+  if (
+    location.host === 'localhost:3456' ||
+    _c('REACT_APP_SITE_VARIANT') === 'test-ci'
+  ) {
+    return 'test-ci'
+  }
+  if (_c('REACT_APP_SITE_VARIANT') === 'preview') {
+    return 'preview'
+  }
+  switch (_c('REACT_APP_BRANCH')) {
     case 'production':
       return 'production'
     case 'master':
       return 'staging'
     default:
-      return 'localhost'
+      return 'dev_site'
   }
 }
 
-const siteVariant = getSiteVariant(branch, e)
+const siteVariant = getSiteVariant()
 
 /*********************************************************************************************** /
                                         Production
 /********************************************************************************************** */
 
-// production config is passed as environment variables during CI build.
-if (siteVariant === 'production') {
-  // note, technically not required as supplied directly to firebase config() method during build
-  sentryConfig = {
-    dsn: e.REACT_APP_SENTRY_DSN as string,
-  }
-  // TODO - create production algolia config
-  algoliaSearchConfig = {
-    applicationID: '',
-    searchOnlyAPIKey: '',
-  }
-  algoliaPlacesConfig = {
-    applicationID: e.REACT_APP_ALGOLIA_PLACES_APP_ID as string,
-    searchOnlyAPIKey: e.REACT_APP_ALGOLIA_PLACES_API_KEY as string,
-  }
-  // disable console logs
-  // eslint-disable-next-line
-  console.log = () => {}
-}
-
 const firebaseConfigs: { [variant in siteVariants]: IFirebaseConfig } = {
   /** Sandboxed dev site, all features available for interaction */
-  localhost: {
+  dev_site: {
     apiKey: 'AIzaSyChVNSMiYxCkbGd9C95aChr9GxRJtW6NRA',
     authDomain: 'precious-plastics-v4-dev.firebaseapp.com',
     databaseURL: 'https://precious-plastics-v4-dev.firebaseio.com',
@@ -113,6 +114,12 @@ const firebaseConfigs: { [variant in siteVariants]: IFirebaseConfig } = {
     storageBucket: 'onearmy-test-ci.appspot.com',
     messagingSenderId: '174193431763',
   },
+  /** Site backed by sandboxed emulator */
+  emulated_site: {
+    apiKey: 'abc',
+    projectId: 'demo-community-platform-emulated',
+    storageBucket: 'default-bucket',
+  } as any,
   /** Production/live backend with master branch frontend */
   staging: {
     apiKey: 'AIzaSyChVNSMiYxCkbGd9C95aChr9GxRJtW6NRA',
@@ -124,12 +131,12 @@ const firebaseConfigs: { [variant in siteVariants]: IFirebaseConfig } = {
   },
   /** Production/live backend with released frontend */
   production: {
-    apiKey: e.REACT_APP_FIREBASE_API_KEY as string,
-    authDomain: e.REACT_APP_FIREBASE_AUTH_DOMAIN as string,
-    databaseURL: e.REACT_APP_FIREBASE_DATABASE_URL as string,
-    messagingSenderId: e.REACT_APP_FIREBASE_MESSAGING_SENDER_ID as string,
-    projectId: e.REACT_APP_FIREBASE_PROJECT_ID as string,
-    storageBucket: e.REACT_APP_FIREBASE_STORAGE_BUCKET as string,
+    apiKey: _c('REACT_APP_FIREBASE_API_KEY'),
+    authDomain: _c('REACT_APP_FIREBASE_AUTH_DOMAIN'),
+    databaseURL: _c('REACT_APP_FIREBASE_DATABASE_URL'),
+    messagingSenderId: _c('REACT_APP_FIREBASE_MESSAGING_SENDER_ID'),
+    projectId: _c('REACT_APP_FIREBASE_PROJECT_ID'),
+    storageBucket: _c('REACT_APP_FIREBASE_STORAGE_BUCKET'),
   },
 }
 /*********************************************************************************************** /
@@ -137,35 +144,29 @@ const firebaseConfigs: { [variant in siteVariants]: IFirebaseConfig } = {
 /********************************************************************************************** */
 
 export const SITE = siteVariant
+export const DEV_SITE_ROLE = devSiteRole
 export const FIREBASE_CONFIG = firebaseConfigs[siteVariant]
-export const ALGOLIA_SEARCH_CONFIG = algoliaSearchConfig
-export const ALGOLIA_PLACES_CONFIG = algoliaPlacesConfig
-export const SENTRY_CONFIG = sentryConfig
-export const VERSION = require('../../package.json').version
-export const GA_TRACKING_ID = process.env.REACT_APP_GA_TRACKING_ID
+export const SENTRY_CONFIG: ISentryConfig = {
+  dsn: _c(
+    'REACT_APP_SENTRY_DSN',
+    'https://8c1f7eb4892e48b18956af087bdfa3ac@sentry.io/1399729',
+  ),
+  environment: siteVariant,
+}
 
-/*********************************************************************************************** /
-                                        Interfaces
-/********************************************************************************************** */
-interface IFirebaseConfig {
-  apiKey: string
-  authDomain: string
-  databaseURL: string
-  projectId: string
-  storageBucket: string
-  messagingSenderId: string
-  appId?: string
+export const CDN_URL = _c('REACT_APP_CDN_URL', '')
+export const VERSION = _c('REACT_APP_PROJECT_VERSION', '')
+export const GA_TRACKING_ID = _c('REACT_APP_GA_TRACKING_ID')
+export const PATREON_CLIENT_ID = _c('REACT_APP_PATREON_CLIENT_ID')
+export const API_URL = _c('REACT_APP_API_URL', '')
+
+export const isPreciousPlastic = (): boolean => {
+  return (
+    (_c('REACT_APP_PLATFORM_THEME') ||
+      localStorage.getItem('platformTheme')) === 'precious-plastic'
+  )
 }
-interface ISentryConfig {
-  dsn: string
-}
-interface IAlgoliaConfig {
-  searchOnlyAPIKey: string
-  applicationID: string
-}
-type siteVariants =
-  | 'localhost'
-  | 'test-ci'
-  | 'staging'
-  | 'production'
-  | 'preview'
+
+export const MAP_PROFILE_TYPE_HIDDEN_BY_DEFAULT = isPreciousPlastic()
+  ? 'member'
+  : undefined

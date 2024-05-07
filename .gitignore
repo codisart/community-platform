@@ -1,15 +1,15 @@
 # See https://help.github.com/ignore-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
+node_modules
 
 # testing
 /coverage
-cypress/videos
-cypress/coverage
-cypress/screenshots
-cypress/fixtures/seed/*.rej
-cypress/build
+/reports
+/junit.xml
+/functions/coverage
+/functions/junit.xml
+
 functions/service.json
 functions/backup.json
 
@@ -19,6 +19,7 @@ functions/backup.json
 
 # misc
 .DS_Store
+.env
 .env.local
 .env.development.local
 .env.test.local
@@ -31,10 +32,19 @@ yarn-error.log*
 .vscode
 .firebase/
 *.log
+.vs
 
 # IntelliJ
 /.idea
 functions/firebase-debug.log
-.env-*
 
+# https://yarnpkg.com/getting-started/qa#which-files-should-be-gitignored
+.yarn/*
+!.yarn/patches
+!.yarn/releases
+!.yarn/plugins
+!.yarn/sdks
+!.yarn/versions
+.pnp.*
 
+*.tsbuildinfo

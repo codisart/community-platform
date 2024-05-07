@@ -1,5 +1,11 @@
-import dateFns from 'date-fns'
-import { ISODateString } from 'src/models/common.models'
+import {
+  startOfToday,
+  startOfTomorrow,
+  startOfWeek,
+  startOfYesterday,
+} from 'date-fns'
+
+import type { ISODateString } from 'src/models/common.models'
 /*
     Manual implementation of filters commonly used through the app
     In the future this could possibly be replaced by more comprehensive libraries
@@ -14,7 +20,7 @@ import { ISODateString } from 'src/models/common.models'
  * @param arr2 The values to test, e.g. ["a","c"]
  */
 export const includesAll = (arr1: string[], arr2: string[]) => {
-  return arr1.every(val => arr2.includes(val))
+  return arr1.every((val) => arr2.includes(val))
 }
 
 /************************************************************************
@@ -53,13 +59,13 @@ const _formatDate = (date: dateType): Date => {
 const _datestringToDate = (str: RelativeDateString) => {
   switch (str) {
     case 'yesterday':
-      return dateFns.startOfYesterday()
+      return startOfYesterday()
     case 'tomorrow':
-      return dateFns.startOfTomorrow()
+      return startOfTomorrow()
     case 'thisweek':
-      return dateFns.startOfWeek(new Date())
+      return startOfWeek(new Date())
     case 'today':
-      return dateFns.startOfToday()
+      return startOfToday()
   }
 }
 

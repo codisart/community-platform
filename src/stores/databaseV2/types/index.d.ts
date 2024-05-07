@@ -4,40 +4,10 @@
  * API items.  On a detail page for a single item, the summary will be
  * shown followed by the remarks section (if any).
  */
-import { Observable } from 'rxjs'
-export abstract class AbstractDatabase {
-  /**
-   * Gets a `CollectionReference` instance that refers to the collection at
-   * the specified path.
-   *
-   * @param clients pass a `DBClients` object to specify what to use as
-   * server and cache dbs. Uses a default configuration if not specified
-   */
-  constructor(clients?: DBClients)
-  /**
-   * Gets a `CollectionReference` instance that refers to the collection at
-   * the specified path.
-   *
-   * @param endpoint The collection/table path name
-   * @return The `CollectionReference` instance.
-   */
-  collection(endpoint: DBEndpoint): CollectionReference
-}
-
-export class CollectionReference {
-  /**
-   * The `clients` is passed to collection references so that the collection
-   * has full access to required db client methods (e.g. server and cache)
-   */
-  private constructor(endpoint: DBEndpoint, clients: DBClients)
-
-  /**
-   *
-   * @param docID pass a `docID` to provide a reference to a specific database document
-   * Leaving blank will generate a new id
-   */
-  doc(docID?: string): DocReference
-}
+export type {
+  AbstractDatabaseClient,
+  AbstractDatabaseClientStreamable,
+} from './DBClient'
 
 /**
  * The `DBClients` consists of separate databases for use online and offline.
@@ -50,38 +20,14 @@ export class CollectionReference {
  * large collections in a more economical way than firestore
  */
 export interface DBClients {
-  cacheDB: AbstractDBClient
-  serverDB: AbstractDBClient
-  serverCacheDB: AbstractDBClient
-}
-
-export abstract class AbstractDBClient {
-  getDoc<T>(endpoint: string, docId: string): Promise<(T & DBDoc) | undefined>
-
-  setDoc(endpoint: string, doc: any): Promise<void>
-
-  setBulkDocs(endpoint: string, docs: any): Promise<void>
-
-  getCollection<T>(endpoint: string): Promise<(T & DBDoc)[]>
-
-  queryCollection<T>(
-    endpoint: string,
-    queryOpts: DBQueryOptions,
-  ): Promise<(T & DBDoc)[]>
-
-  streamCollection?<T>(
-    endpoint: string,
-    queryOpts?: DBQueryOptions,
-  ): Observable<(T & DBDoc)[]>
-
-  streamDoc?<T>(endpoint: string): Observable<T & DBDoc>
-
-  deleteDoc(endpoint: string, docId: string): Promise<void>
+  cacheDB: AbstractDatabaseClient
+  serverDB: AbstractDatabaseClientStreamable
+  serverCacheDB: AbstractDatabaseClient
 }
 
 /**
  * @remarks
- * The `DBDoc` metadata is automatically popuplated to every document that
+ * The `DBDoc` metadata is automatically populated to every document that
  * goes into the database to allow for easier querying and management
  */
 export interface DBDoc {
@@ -89,6 +35,7 @@ export interface DBDoc {
   _created: ISODateString
   _modified: ISODateString
   _deleted: boolean
+  _contentModifiedTimestamp: ISODateString
 }
 
 export interface DBQueryOptions {
@@ -102,8 +49,15 @@ export interface DBQueryWhereOptions {
   operator: DBQueryWhereOperator
   value: DBQueryWhereValue
 }
-export type DBQueryWhereOperator = '>' | '<' | '==' | 'array-contains'
-export type DBQueryWhereValue = string | number
+
+export type DBQueryWhereOperator =
+  | '>'
+  | '>='
+  | '<'
+  | '=='
+  | '!='
+  | 'array-contains'
+export type DBQueryWhereValue = string | number | boolean
 
 /**
  * @remarks

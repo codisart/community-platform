@@ -1,0 +1,551 @@
+version: 2.1
+######################################################################################################
+# Pre-Requisites
+#
+# In order to use these scripts various env variables need to be set on CircleCI
+# See `packages/documentation/docs/Deployment/circle-ci.md` for more information
+#
+# For general config info see: https://circleci.com/docs/2.0/configuration-reference
+######################################################################################################
+
+######################################################################################################
+#  Orbs - preconfigured environments for running specific jobs
+######################################################################################################
+
+orbs:
+  # for use with cimg image, to install web browsers
+  browser-tools: circleci/browser-tools@1.4.5
+  # used to track coverage
+  codecov: codecov/codecov@3.2.5
+
+######################################################################################################
+#  Aliases - code snippets that can be included inline in any other markup
+######################################################################################################
+aliases:
+  # use a base image running node v18 with chrome/firefox browsers preinstalled
+  # This can be applied to any job via `docker: *docker` syntax
+  - &docker
+    - image: cimg/node:20.7.0-browsers
+
+  # Use base image with support for node version parameter and matrix
+  # This can be applied to any job via `<<: *docker_matrix` syntax
+  - docker_matrix: &docker_matrix
+      parameters:
+        node-version:
+          type: string
+          default: 20.7.0-browsers
+      docker:
+        - image: cimg/node:<< parameters.node-version >>
+
+    # These can also be created as commands, but slighly tidier to just use inline
+    # restore/install/save can all be done with a single circle-ci orb, but less flexible and breaks intellisense
+  - &restore_yarn_cache
+    restore_cache:
+      name: Restore yarn cache
+      keys:
+        # https://circleci.com/docs/2.0/caching/
+        # https://circleci.com/docs/2.0/yarn/
+        # NOTE - if changing base image or received cache permission denied may need to bump version v3->v4 or similar (clears after 15d)
+        - v9-yarn-{{ checksum "yarn.lock" }}
+        - v9-yarn-
+  - &install_packages
+    run:
+      name: Install Packages
+      # Install packages
+      # NOTE run twice with check to ensure install-state created (previously had issues, doesn't add much time to check)
+      command: |
+        yarn install --immutable
+        yarn install --immutable --immutable-cache
+        if [ ! -f /home/circleci/.yarn/install-state.gz ]; then echo "install-state not created" && exit 1; fi
+      environment:
+        YARN_INSTALL_STATE_PATH: /home/circleci/.yarn/install-state.gz
+        YARN_CACHE_FOLDER: /home/circleci/.yarn/cache
+  - &save_yarn_cache
+    save_cache:
+      # https://circleci.com/docs/caching/#basic-example-of-yarn-package-manager-caching
+      # NOTE - ensure always caches to consistent location when using non-circleci user
+      paths:
+        - /home/circleci/.yarn/cache
+        - /home/circleci/.yarn/install-state.gz
+      key: v9-yarn-{{ checksum "yarn.lock" }}
+
+  # Example debugging commands for use troubleshooting caching (du will exit with status 141)
+  - &check_folders
+    run:
+      name: check folders
+      command: |
+        ls -a ~/project
+        du -a /home | sort -n -r | head -n 500
+
+  - &filter_only_production
+    filters:
+      branches:
+        only:
+          - production
+  - &filter_only_master
+    filters:
+      branches:
+        only:
+          - master
+  - &filter_only_ci_test
+    filters:
+      branches:
+        only:
+          - ci/circle-ci-release
+
+######################################################################################################
+#  Commands - Reusable collections of steps
+######################################################################################################
+commands:
+  setup_repo:
+    description: checkout repo and install packages
+    # no parameters currently used, but could be specified here to use within steps
+    # parameters:
+    steps:
+      - checkout
+      - *restore_yarn_cache
+      - *install_packages
+  inject_instance_configuration:
+    steps:
+      - run:
+          name: Set branch environment
+          command: |
+            echo 'export REACT_APP_PROJECT_VERSION=${CIRCLE_SHA1}' >> $BASH_ENV
+      - run:
+          name: Inject target environment configuration
+          command: |
+            yarn build:inject-config
+
+  firebase_deploy:
+    description: Deploy to Firebase
+    parameters:
+      token:
+        type: string
+        default: ''
+        description: Firebase Deploy Token
+      alias:
+        type: string
+        default: 'default'
+        description: Firebase project alias to deploy to
+    steps:
+      - run:
+          name: Export application credentials
+          command: echo $GOOGLE_APPLICATION_CREDENTIALS_JSON > service_account.json
+      - run:
+          name: Configure Firebase Extensions
+          command: envsubst < extensions/firestore-send-email.config > extensions/firestore-send-email.env
+      - run:
+          # Use version of firebase-tools already installed in functions workspace to deploy
+          name: Deploy to Firebase
+          command: npx firebase-tools@12.7.0 deploy --debug -P << parameters.alias >> --non-interactive --force
+          environment:
+            GOOGLE_APPLICATION_CREDENTIALS: service_account.json
+
+examples:
+
+######################################################################################################
+#  Jobs - Independently specified lists of tasks and environments for execution
+######################################################################################################
+jobs:
+  spellcheck:
+    docker: *docker
+    resource_class: small
+    steps:
+      - checkout
+      - attach_workspace:
+          at: '.'
+      - run:
+          name: Check spelling on documentation
+          command: |
+            npx cspell "**/*.md" --config ./.cspell.json
+  lint-commits:
+    docker:
+      - image: commitlint/commitlint
+    resource_class: small
+    steps:
+      - checkout
+      - attach_workspace:
+          at: '.'
+      - run:
+          name: Linting commits
+          command: |
+            commitlint --from=$(git merge-base remotes/origin/${CIRCLE_BRANCH} master) --verbose
+  lint:
+    docker: *docker
+    resource_class: medium+
+    steps:
+      - setup_repo
+      - run:
+          command: yarn lint
+      - run:
+          command: yarn workspace oa-components lint
+  # Prepare node module caches so that future tasks run more quickly
+  # NOTE - not currently used as we only have one workflow
+  setup:
+    docker: *docker
+    steps:
+      - setup_repo
+  test_security_rules:
+    docker: *docker
+    resource_class: medium+
+    environment:
+      GCLOUD_PROJECT: onearmy-test-ci
+    steps:
+      - setup_repo
+      - attach_workspace:
+          at: '.'
+      - run:
+          name: Test Security Rules
+          command: yarn workspace security-rules test-with-emulator
+  test_functions:
+    docker:
+      # use base image published by platform to ensure compatibility
+      - image: onearmyplatform/community-platform-emulator:pp-2023-11-09c
+    resource_class: large
+    environment:
+      CYPRESS_INSTALL_BINARY: 0
+      JEST_JUNIT_OUTPUT_DIR: ./reports
+    steps:
+      - setup_repo
+      - attach_workspace:
+          at: '.'
+      # Copy docker generated files to include correct firebase.json port bindings,
+      # dummy credentials and runtimeconfig (note overwrites )
+      # Also create dummy build folder used to copy index.html as part of webpack build
+      # and build (required before running tests)
+      - run:
+          name: Build Functions
+          command: |
+            cp /app/firebase.json firebase.json
+            cp /app/credentials.json credentials.json
+            cp /app/functions/.runtimeconfig.json functions/.runtimeconfig.json
+            mkdir build
+            touch build/index.html
+            yarn workspace functions build
+      - run:
+          name: Test Functions
+          # Run functions emulator test command with additional flags to ensure CI receives correct exit code
+          command: cd functions && yarn test-ci
+      - persist_to_workspace:
+          root: .
+          paths:
+            - functions/coverage
+            - functions/reports
+      - store_test_results:
+          path: functions/reports
+
+  test_functions_upload_coverage:
+    docker: *docker
+    resource_class: medium+
+    steps:
+      - setup_repo
+      - attach_workspace:
+          at: '.'
+      - codecov/upload
+
+  # Create a production build
+  # NOTE - not currently used in test workflow as different build_env required for each machine
+  test_unit:
+    docker: *docker
+    resource_class: medium+
+    steps:
+      - setup_repo
+      - run:
+          # NOTE - run-in-band to try reduce memory leaks (https://github.com/facebook/jest/issues/7874)
+          command: yarn run test:unit && yarn run test:components
+          environment:
+            JEST_JUNIT_OUTPUT_DIR: reports
+      - store_artifacts:
+          path: coverage
+      - store_artifacts:
+          path: packages/components/coverage
+      - codecov/upload
+      - store_artifacts:
+          path: packages/components/reports
+      - store_test_results:
+          path: packages/components/reports
+      - store_artifacts:
+          path: reports
+      - store_test_results:
+          path: reports
+
+  test_circular_dependency:
+    docker: *docker
+    steps:
+      - setup_repo
+      - run:
+          command: yarn run test:madge
+
+  build:
+    <<: *docker_matrix
+    environment:
+      GENERATE_SOURCEMAP: 'false'
+      SKIP_PREFLIGHT_CHECK: 'true'
+      NODE_OPTIONS: '--max-old-space-size=5632'
+    # If experiencing out-of-memory issues can increase resource_class below and max space size above
+    # https://circleci.com/docs/2.0/configuration-reference/#resourceclass
+    resource_class: large
+    steps:
+      - setup_repo
+      # As environment variables can only be set from strings add additional dynamic variable mappings here
+      # https://discuss.circleci.com/t/using-environment-variables-in-config-yml-not-working/14237/13
+      - run:
+          name: Set branch environment
+          command: |
+            echo 'export REACT_APP_BRANCH=${CIRCLE_BRANCH}' >> $BASH_ENV
+            echo 'export REACT_APP_PROJECT_VERSION=${CIRCLE_SHA1}' >> $BASH_ENV
+      - run:
+          name: Check environment variables
+          command: |
+            echo REACT_APP_BRANCH=$REACT_APP_BRANCH
+            echo $REACT_APP_PROJECT_VERSION
+      - run:
+          command: yarn build
+      - persist_to_workspace:
+          root: .
+          paths:
+            - build
+  storybook:
+    docker: *docker
+    resource_class: medium
+    steps:
+      - setup_repo
+      - attach_workspace:
+          at: '.'
+      - run:
+          command: yarn storybook:build
+  deploy:
+    docker: *docker
+    resource_class: medium+
+    parameters:
+      # optional environment variables to set during build process
+      DEPLOY_ALIAS:
+        type: string
+        default: 'default'
+    steps:
+      - setup_repo
+      - attach_workspace:
+          at: '.'
+      - inject_instance_configuration
+      - firebase_deploy:
+          # token: $FIREBASE_DEPLOY_TOKEN # This should be set as environment variable
+          alias: << parameters.DEPLOY_ALIAS >>
+
+  # Run cypress e2e tests on chrome
+  test_e2e:
+    docker: *docker
+    resource_class: medium+
+    # build matrix will run 4 parallel builds handled by cypress, so don't need to specify more here
+    parallelism: 1
+    parameters:
+      CI_NODE:
+        type: integer
+      CI_BROWSER:
+        type: string
+    steps:
+      - setup_repo
+      # retrieve build folder
+      - attach_workspace:
+          at: '.'
+      - inject_instance_configuration
+      # install testing browsers are required
+      - when:
+          condition:
+            equal: ['chrome', << parameters.CI_BROWSER >>]
+          steps:
+            - browser-tools/install-chrome
+      - when:
+          condition:
+            equal: ['firefox', << parameters.CI_BROWSER >>]
+          steps:
+            - browser-tools/install-firefox
+      # call main testing script
+      - run:
+          command: npm run test ci prod
+          environment:
+            CI_BROWSER: << parameters.CI_BROWSER >>
+            CI_NODE: << parameters.CI_NODE >>
+            CI_GROUP: ci-<< parameters.CI_BROWSER >>
+      - store_artifacts:
+          path: ./packages/cypress/src/screenshots/
+  release:
+    docker: *docker
+    resource_class: medium+
+    steps:
+      - setup_repo
+      - attach_workspace:
+          at: '.'
+      - run:
+          command: npx semantic-release@22
+
+######################################################################################################
+#  Workflows - Collections of jobs to define overall processes
+######################################################################################################
+workflows:
+  version: 2
+  main_workflow:
+    # by default jobs will run concurrently, so specify requires if want to run sequentially
+    jobs:
+      - spellcheck:
+          name: Check documentation spelling
+          filters:
+            branches:
+              ignore:
+                - production
+      - lint-commits:
+          name: Lint commits
+          filters:
+            branches:
+              ignore:
+                - production
+      - lint:
+          name: Lint code
+          requires:
+            - 'Check documentation spelling'
+            - 'Lint commits'
+          filters:
+            branches:
+              ignore:
+                - production
+      #---------------------- Test ----------------------
+      # Note - when calling test we also let the test script handle building as it injects random variables for seeding the DB
+      - build:
+          requires:
+            - 'Lint code'
+          name: Build Application
+          context: build-context
+      - test_unit:
+          name: 'Unit tests'
+          requires:
+            - 'Lint code'
+          filters:
+            branches:
+              ignore:
+                - production
+      - test_circular_dependency:
+          name: 'Circular dependency test'
+          requires:
+            - 'Lint code'
+          filters:
+            branches:
+              ignore:
+                - production
+      - storybook:
+          name: Build Storybook
+          requires:
+            - 'Lint code'
+          filters:
+            branches:
+              ignore:
+                - production
+      - test_security_rules:
+          name: Test Security Rules
+          requires:
+            - 'Lint code'
+          filters:
+            branches:
+              ignore:
+                - production
+      - test_functions:
+          name: 'Cloud Function tests'
+          requires:
+            - 'Lint code'
+          context: build-context
+          filters:
+            branches:
+              ignore:
+                - production
+      - test_functions_upload_coverage:
+          name: 'Upload Cloud Function coverage'
+          requires:
+            - 'Cloud Function tests'
+          filters:
+            branches:
+              ignore:
+                - production
+      - test_e2e:
+          name: e2e-<< matrix.CI_BROWSER >>-<< matrix.CI_NODE >>
+          requires:
+            - 'Build Application'
+            - 'Unit tests'
+            - 'Circular dependency test'
+            - 'Cloud Function tests'
+            - 'Build Storybook'
+            - 'Test Security Rules'
+          context:
+            - e2e-tests
+          matrix:
+            parameters:
+              CI_NODE: [1, 2, 3, 4]
+              CI_BROWSER: ['chrome']
+          filters:
+            branches:
+              ignore:
+                - production
+      #---------------------- Development Instances Build and Deploy ----------------------
+      - deploy:
+          name: 'Deploy: dev.onearmy.world'
+          requires:
+            - test_e2e
+          <<: *filter_only_master
+          DEPLOY_ALIAS: 'default'
+          context:
+            - circle-ci-patreon-context
+            - community-platform-dev
+      - deploy:
+          name: 'Deploy: dev.community.projectkamp.com'
+          requires:
+            - test_e2e
+          <<: *filter_only_master
+          DEPLOY_ALIAS: project-kamp-development
+          context:
+            - circle-ci-patreon-context
+            - project-kamp-dev
+      - deploy:
+          name: 'Deploy: dev.community.fixing.fashion'
+          requires:
+            - test_e2e
+          <<: *filter_only_master
+          DEPLOY_ALIAS: fixing-fashion-dev
+          context:
+            - circle-ci-patreon-context
+            - fixing-fashion-dev
+      #---------------------- Development Instances Build and Deploy ----------------------
+      - release:
+          name: Release new version to GitHub
+          <<: *filter_only_production
+          context:
+            - release-context
+      - build:
+          name: Build Production Release
+          context: build-context
+          requires:
+            - 'Release new version to GitHub'
+          <<: *filter_only_production
+      - deploy:
+          name: 'Deploy: community.fixing.fashion'
+          requires:
+            - 'Build Production Release'
+          <<: *filter_only_production
+          DEPLOY_ALIAS: fixing-fashion-prod
+          context:
+            - circle-ci-patreon-context
+            - fixing-fashion-prod
+      - deploy:
+          name: 'Deploy: community.preciousplastic.com'
+          requires:
+            - 'Build Production Release'
+          <<: *filter_only_production
+          DEPLOY_ALIAS: 'production'
+          context:
+            - circle-ci-patreon-context
+            - community-platform-production
+      - deploy:
+          name: 'Deploy: community.projectkamp.com'
+          requires:
+            - 'Build Production Release'
+          <<: *filter_only_production
+          DEPLOY_ALIAS: project-kamp-production
+          context:
+            - circle-ci-patreon-context
+            - project-kamp-production

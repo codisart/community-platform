@@ -1,25 +1,21 @@
-import * as React from 'react'
-import Flex from 'src/components/Flex'
-import Heading from 'src/components/Heading'
-import styled from 'styled-components'
-import theme from 'src/themes/styled.theme'
-import { Button } from 'src/components/Button'
-import Text from 'src/components/Text'
-import { Link } from 'src/components/Links'
-import { Form, Field } from 'react-final-form'
-import { InputField } from 'src/components/Form/Fields'
-import { inject, observer } from 'mobx-react'
-import { UserStore } from 'src/stores/User/user.store'
-import { RouteComponentProps, withRouter } from 'react-router'
-import { string, object, ref, bool } from 'yup'
-import { required } from 'src/utils/validators'
+import { useState } from 'react'
+import { Field, Form } from 'react-final-form'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { observer } from 'mobx-react'
+import { Button, ExternalLink, FieldInput } from 'oa-components'
+import { FRIENDLY_MESSAGES } from 'oa-shared'
+import { PasswordField } from 'src/common/Form/PasswordField'
+import { useCommonStores } from 'src/common/hooks/useCommonStores'
+import { logger } from 'src/logger'
+import { checkUserNameUnique } from 'src/utils/checkUserNameUnique'
 import { formatLowerNoSpecial } from 'src/utils/helpers'
-
-const Label = styled.label`
-  font-size: ${theme.fontSizes[2] + 'px'};
-  margin-bottom: ${theme.space[2] + 'px'};
-  display: block;
-`
+import {
+  composeValidators,
+  noSpecialCharacters,
+  required,
+} from 'src/utils/validators'
+import { Card, Flex, Heading, Label, Text } from 'theme-ui'
+import { bool, object, ref, string } from 'yup'
 
 interface IFormValues {
   email: string
@@ -33,211 +29,251 @@ interface IState {
   errorMsg?: string
   disabled?: boolean
 }
-interface IProps extends RouteComponentProps<any> {
-  onChange?: (e: React.FormEvent<any>) => void
-  userStore?: UserStore
-  preloadValues?: any
-}
 
-@inject('userStore')
-@observer
-class SignUpPage extends React.Component<IProps, IState> {
-  constructor(props: IProps) {
-    super(props)
-    this.state = {
-      formValues: {
-        email: '',
-        password: '',
-        passwordConfirmation: '',
-        displayName: '',
-        consent: false,
-      },
-    }
-  }
+const rowWidth = ['100%', '100%', `100%`]
 
-  public async checkUserNameUnique(userName: string) {
-    const user = await this.props.userStore!.getUserProfile(userName)
-    return user && !user._deleted ? false : true
-  }
+const SignUpPage = observer(() => {
+  const navigate = useNavigate()
+  const { userStore } = useCommonStores().stores
+  const [state, setState] = useState<IState>({
+    formValues: {
+      email: '',
+      password: '',
+      passwordConfirmation: '',
+      displayName: '',
+      consent: false,
+    },
+  })
 
-  async onSignupSubmit(v: IFormValues) {
+  const validationSchema = object({
+    displayName: string()
+      .min(2, 'Username must be at least 2 characters')
+      .required('Required')
+      .test(
+        'is-unique',
+        FRIENDLY_MESSAGES['sign-up/username-taken'],
+        (value) => {
+          return checkUserNameUnique(userStore, value)
+        },
+      ),
+    email: string()
+      .email(FRIENDLY_MESSAGES['auth/invalid-email'])
+      .required('Required'),
+    password: string()
+      .min(6, 'Password must be at least 6 characters')
+      .required('Password is required'),
+    'confirm-password': string()
+      .oneOf([ref('password'), ''], 'Your new password does not match')
+      .required('Password confirm is required'),
+    consent: bool().oneOf([true], 'Consent is required'),
+  })
+
+  const onSignupSubmit = async (v: IFormValues) => {
     const { email, password, displayName } = v
     const userName = formatLowerNoSpecial(displayName as string)
+
     try {
-      if (await this.checkUserNameUnique(userName)) {
-        await this.props.userStore!.registerNewUser(
-          email,
-          password,
-          displayName,
-        )
-        this.props.history.push('/sign-up-message')
+      if (await checkUserNameUnique(userStore, userName)) {
+        await userStore!.registerNewUser(email, password, displayName)
+        navigate('/sign-up-message')
       } else {
-        this.setState({
-          errorMsg: 'That display name is already taken',
+        setState((prev) => ({
+          ...prev,
+          errorMsg: FRIENDLY_MESSAGES['sign-up/username-taken'],
           disabled: false,
-        })
+        }))
       }
     } catch (error) {
-      this.setState({ errorMsg: error.message, disabled: false })
+      logger.error(`Error signing up`, { errorCode: error.code, displayName })
+      setState((prev) => ({
+        ...prev,
+        errorMsg: FRIENDLY_MESSAGES[error.code] || error.message,
+        disabled: false,
+      }))
     }
   }
 
-  public render() {
-    return (
-      <Form
-        onSubmit={v => this.onSignupSubmit(v as IFormValues)}
-        validate={async (values: any) => {
-          const validationSchema = object({
-            displayName: string()
-              .min(2, 'Too short')
-              .required('Required'),
-            email: string()
-              .email('Invalid email')
-              .required('Required'),
-            password: string().required('Password is required'),
-            'confirm-password': string()
-              .oneOf(
-                [ref('password'), null],
-                'Your new password does not match',
-              )
-              .required('Password confirm is required'),
-            consent: bool().oneOf([true], 'Consent is required'),
-          })
+  if (userStore!.user) {
+    return <Navigate to={'/'} />
+  }
 
-          try {
-            await validationSchema.validate(values, { abortEarly: false })
-          } catch (err) {
-            return err.inner.reduce(
-              (acc: object, error) => ({
-                ...acc,
-                [error.path]: error.message,
-              }),
-              {},
-            )
-          }
-        }}
-        render={({ submitting, values, invalid, handleSubmit }) => {
-          const disabled = invalid || submitting
-          return (
-            <form onSubmit={handleSubmit}>
-              <Flex
-                bg="inherit"
-                px={2}
-                width={1}
-                css={{ maxWidth: '620px' }}
-                mx={'auto'}
-                mt={20}
-                mb={3}
-              >
-                <Flex flexDirection={'column'} width={1}>
-                  <Flex
-                    card
-                    mediumRadius
-                    bg={'softblue'}
-                    px={3}
-                    py={2}
-                    width={1}
-                  >
-                    <Heading medium width={1}>
-                      Hey, nice to see you here
-                    </Heading>
+  return (
+    <Form
+      onSubmit={(v) => onSignupSubmit(v as IFormValues)}
+      validate={async (values: any) => {
+        try {
+          await validationSchema.validate(values, { abortEarly: false })
+        } catch (err) {
+          return err.inner.reduce(
+            (acc: any, error) => ({
+              ...acc,
+              [error.path]: error.message,
+            }),
+            {},
+          )
+        }
+      }}
+      render={({ submitting, invalid, handleSubmit }) => {
+        const disabled = invalid || submitting
+        return (
+          <form onSubmit={handleSubmit}>
+            <Flex
+              bg="inherit"
+              px={2}
+              sx={{ width: '100%' }}
+              css={{ maxWidth: '620px' }}
+              mx={'auto'}
+              mt={20}
+              mb={3}
+            >
+              <Flex sx={{ flexDirection: 'column', width: '100%' }}>
+                <Card bg={'softblue'}>
+                  <Flex px={3} py={2} sx={{ width: '100%' }}>
+                    <Heading>Hey, nice to see you here</Heading>
                   </Flex>
+                </Card>
+                <Card mt={3}>
                   <Flex
-                    card
-                    mediumRadius
-                    bg={'white'}
-                    width={1}
-                    mt={3}
                     px={4}
                     pt={0}
                     pb={4}
-                    flexWrap="wrap"
-                    flexDirection="column"
+                    sx={{
+                      flexWrap: 'wrap',
+                      flexDirection: 'column',
+                      width: '100%',
+                    }}
                   >
-                    <Heading small py={4} width={1}>
+                    <Heading variant="small" py={2} sx={{ width: '100%' }}>
                       Create an account
                     </Heading>
-                    <Flex flexDirection={'column'} mb={3} width={[1, 1, 2 / 3]}>
-                      <Label htmlFor="displayName">
-                        Display Name, personal or workspace*
-                      </Label>
+                    <Flex mb={3} sx={{ justifyContent: 'space-between' }}>
+                      <Text color={'grey'} sx={{ fontSize: 1 }}>
+                        Already have an account ?
+                        <Link
+                          to="/sign-in"
+                          style={{
+                            color: '#98cc98',
+                            textDecoration: 'underline',
+                          }}
+                        >
+                          {' '}
+                          Sign-in here
+                        </Link>
+                      </Text>
+                    </Flex>
+                    <Text color={'red'} data-cy="error-msg">
+                      {state.errorMsg}
+                    </Text>
+                    <Flex
+                      mb={3}
+                      sx={{
+                        width: rowWidth,
+                        flexDirection: 'column',
+                      }}
+                    >
+                      <Label htmlFor="displayName">Username</Label>
+                      <Text color={'grey'} mt={1} mb={1} sx={{ fontSize: 1 }}>
+                        Think carefully. You can't change this.
+                      </Text>
                       <Field
                         data-cy="username"
                         name="displayName"
                         type="userName"
-                        component={InputField}
-                        placeholder="Pick a unique name"
-                        validate={required}
+                        component={FieldInput}
+                        placeholder="youruniqueusername"
+                        validate={composeValidators(
+                          required,
+                          noSpecialCharacters,
+                        )}
                       />
                     </Flex>
-                    <Flex flexDirection={'column'} mb={3} width={[1, 1, 2 / 3]}>
-                      <Label htmlFor="email">
-                        Email, personal or workspace*
-                      </Label>
+                    <Flex
+                      mb={3}
+                      sx={{
+                        flexDirection: 'column',
+                        width: rowWidth,
+                      }}
+                    >
+                      <Label htmlFor="email">Email</Label>
+                      <Text color={'grey'} mt={1} mb={1} sx={{ fontSize: 1 }}>
+                        It can be personal or work email.
+                      </Text>
                       <Field
                         data-cy="email"
                         name="email"
                         type="email"
-                        component={InputField}
-                        placeholder="hey@jack.com"
+                        component={FieldInput}
+                        placeholder="yourname@domain.com"
                         validate={required}
                       />
                     </Flex>
-                    <Flex flexDirection={'column'} mb={3} width={[1, 1, 2 / 3]}>
-                      <Label htmlFor="password">Password*</Label>
-                      <Field
+                    <Flex
+                      mb={3}
+                      sx={{
+                        flexDirection: 'column',
+                        width: rowWidth,
+                      }}
+                    >
+                      <Label htmlFor="password">Password</Label>
+                      <PasswordField
                         data-cy="password"
                         name="password"
-                        type="password"
-                        component={InputField}
+                        component={FieldInput}
                         validate={required}
                       />
                     </Flex>
-                    <Flex flexDirection={'column'} mb={3} width={[1, 1, 2 / 3]}>
-                      <Label htmlFor="confirm-password">
-                        Confirm Password*
-                      </Label>
-                      <Field
+                    <Flex
+                      mb={3}
+                      sx={{
+                        flexDirection: 'column',
+                        width: rowWidth,
+                      }}
+                    >
+                      <Label htmlFor="confirm-password">Confirm Password</Label>
+                      <PasswordField
                         data-cy="confirm-password"
                         name="confirm-password"
-                        type="password"
-                        component={InputField}
+                        component={FieldInput}
                         validate={required}
                       />
                     </Flex>
-                    <Flex mb={3} mt={2} width={[1, 1, 2 / 3]}>
-                      <Field
-                        data-cy="consent"
-                        name="consent"
-                        type="checkbox"
-                        component="input"
-                        validate={required}
-                      />
-                      <Label htmlFor="consent">
-                        I agree to the{' '}
-                        <a href="/terms" target="_blank" rel="nofollow">
-                          Terms of Service
-                        </a>
-                        <span> and </span>
-                        <a href="/privacy" target="_blank" rel="nofollow">
-                          Privacy Policy
-                        </a>
+                    <Flex mb={3} mt={2} sx={{ width: rowWidth }}>
+                      <Label
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: '6px',
+                        }}
+                      >
+                        <Field
+                          data-cy="consent"
+                          name="consent"
+                          type="checkbox"
+                          component="input"
+                          validate={required}
+                        />
+                        <Text
+                          sx={{
+                            fontSize: 2,
+                          }}
+                        >
+                          I agree to the{' '}
+                          <ExternalLink href="/terms">
+                            Terms of Service
+                          </ExternalLink>
+                          <span> and </span>
+                          <ExternalLink href="/privacy">
+                            Privacy Policy
+                          </ExternalLink>
+                        </Text>
                       </Label>
-                    </Flex>
-                    <Text color={'red'} data-cy="error-msg">
-                      {this.state.errorMsg}
-                    </Text>
-                    <Flex mb={3} justifyContent={'space-between'}>
-                      <Text small color={'grey'} mt={2}>
-                        Already have an account ?
-                        <Link to="/sign-in"> Sign-in here</Link>
-                      </Text>
                     </Flex>
 
                     <Flex>
                       <Button
+                        large
+                        sx={{ width: '100%', justifyContent: 'center' }}
                         data-cy="submit"
-                        width={1}
                         variant={'primary'}
                         disabled={disabled}
                         type="submit"
@@ -246,14 +282,14 @@ class SignUpPage extends React.Component<IProps, IState> {
                       </Button>
                     </Flex>
                   </Flex>
-                </Flex>
+                </Card>
               </Flex>
-            </form>
-          )
-        }}
-      />
-    )
-  }
-}
+            </Flex>
+          </form>
+        )
+      }}
+    />
+  )
+})
 
-export default withRouter(SignUpPage)
+export default SignUpPage

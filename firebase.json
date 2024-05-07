@@ -1,11 +1,36 @@
 {
+  "$schema": "./node_modules/firebase-tools/schema/firebase-config.json",
   "hosting": {
     "public": "build",
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
     "rewrites": [
       {
         "source": "/api",
         "function": "api"
+      },
+      {
+        "source": "/how-to/**",
+        "function": "seo-seoRender"
+      },
+      {
+        "source": "/_logging",
+        "function": "logToCloudLogging-logToCloudLogging"
+      },
+      {
+        "source": "/research/**",
+        "function": "seo-seoRender"
+      },
+      {
+        "source": "/sitemap.xml",
+        "function": "seo-sitemapProxy"
+      },
+      {
+        "source": "/static/**",
+        "destination": "/static/**"
       },
       {
         "source": "**",
@@ -29,7 +54,7 @@
         ]
       },
       {
-        "source": "**/*.@(jpg|jpeg|gif|png)",
+        "source": "**/*.@(jpg|jpeg|gif|png|svg)",
         "headers": [
           {
             "key": "Cache-Control",
@@ -40,29 +65,72 @@
             "value": "*"
           }
         ]
+      },
+      {
+        "source": "static/**/*.@(js|css|map)",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=31536000"
+          },
+          {
+            "key": "Access-Control-Allow-Origin",
+            "value": "*"
+          }
+        ]
+      },
+      {
+        "source": "/service-worker.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
       }
     ]
   },
   "functions": {
     "predeploy": [
-      "yarn --cwd \"$RESOURCE_DIR\" install",
-      "npm --prefix \"$RESOURCE_DIR\" run lint",
-      "npm --prefix \"$RESOURCE_DIR\" run build"
+      "yarn workspace functions build"
     ],
-    "source": "functions"
+    "source": "functions/dist",
+    "runtime": "nodejs20"
   },
   "emulators": {
+    "ui": {
+      "enabled": true,
+      "port": 4001
+    },
     "functions": {
-      "port": 5001
+      "port": 4002
     },
     "firestore": {
-      "port": 8080
+      "port": 4003
     },
     "hosting": {
-      "port": 5000
+      "port": 4004
     },
-    "ui": {
-      "enabled": true
+    "auth": {
+      "port": 4005
+    },
+    "database": {
+      "port": 4006
+    },
+    "storage": {
+      "port": 4007
+    },
+    "pubsub": {
+      "port": 4008
     }
+  },
+  "storage": {
+    "rules": "firebase.storage.rules"
+  },
+  "extensions": {
+    "firestore-send-email": "firebase/firestore-send-email@0.1.27"
+  },
+  "firestore": {
+    "indexes": "./firestore.indexes.json"
   }
 }

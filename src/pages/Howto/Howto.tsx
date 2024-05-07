@@ -1,42 +1,47 @@
-import * as React from 'react'
-import { Route, Switch, withRouter } from 'react-router-dom'
+import React, { lazy, Suspense } from 'react'
+import { Route, Routes } from 'react-router-dom'
+
+import { AuthRoute } from '../common/AuthRoute'
 import { Howto } from './Content/Howto/Howto'
-import CreateHowto from './Content/CreateHowto/CreateHowto'
-import { EditHowto } from './Content/EditHowto/EditHowto'
 import { HowtoList } from './Content/HowtoList/HowtoList'
 
-class HowtoPageClass extends React.Component<any, any> {
-  // eslint-disable-next-line
-  constructor(props: any) {
-    super(props)
-  }
+// lazy load editor pages
+const CreateHowto = lazy(
+  () =>
+    import(
+      /* webpackChunkName: "CreateHowto" */ './Content/CreateHowto/CreateHowto'
+    ),
+)
+const EditHowto = lazy(
+  () =>
+    import(/* webpackChunkName: "EditHowto" */ './Content/EditHowto/EditHowto'),
+)
 
-  public render() {
-    return (
-      <div>
-        <Switch>
-          <Route
-            exact
-            path="/how-to"
-            render={props => <HowtoList {...props} />}
-          />
-          <Route
-            path="/how-to/create"
-            component={CreateHowto}
-            redirectPath="/how-to"
-          />
-          <Route
-            path="/how-to/:slug"
-            exact
-            render={props => <Howto {...props} />}
-          />
-          <Route
-            path="/how-to/:slug/edit"
-            render={props => <EditHowto {...props} />}
-          />
-        </Switch>
-      </div>
-    )
-  }
+const HowtoPage = () => {
+  return (
+    <Suspense fallback={<div></div>}>
+      <Routes>
+        <Route index element={<HowtoList />} />
+        <Route
+          path="create"
+          element={
+            <AuthRoute>
+              <CreateHowto />
+            </AuthRoute>
+          }
+        />
+        <Route path=":slug" element={<Howto />} />
+        <Route
+          path=":slug/edit"
+          element={
+            <AuthRoute>
+              <EditHowto />
+            </AuthRoute>
+          }
+        />
+      </Routes>
+    </Suspense>
+  )
 }
-export const HowtoPage: any = withRouter(HowtoPageClass as any)
+
+export default HowtoPage

@@ -1,30 +1,29 @@
-import * as functions from 'firebase-functions'
-
-// Re-export types from the main platform used in functions
-// Note - simply exporting * seems to fail so add specific exports as required
-export {
-  IEventDB,
-  IHowtoDB,
+import type * as functions from 'firebase-functions'
+// Import and Re-export models from the main platform if required by functions
+// NOTE - as of yarn 3.3 we need to import relatively instead of from a workspace import.
+// This is because the functions code sits at same level of main platform package.json, creating cyclic symlinks
+// functions -> node_modules -> community-plaform -> functions -> node_modules ....
+// Importing from outside the src code is still fine because we make single builds with webpack
+// which can resolve at build time, but would not work if deploying direct to firebase functions.
+// Alternative fix would be to put the platform code one level further nested e.g. <root>/platform/src
+export type {
   DBDoc,
-  IUserDB,
   IDBEndpoint,
+  IDiscussion,
+  IHowtoDB,
+  IMapPin,
+  IMessageDB,
+  IModerable,
+  INotification,
+  IPendingEmails,
+  IResearchDB,
+  IUserDB,
 } from '../../src/models'
 
-/*************************************************************************************
- * IMPORTANT
- * We want to ensure the same db endpoints are used in frontend and backend functions,
- * however importing directly isn't very well supported for constants
- * (to fix with future migration to lerna or similar module system)
- *
- * Therefore these need to be kept manually in sync with src/stores/databaseV2/endpoints.ts
- **************************************************************************************/
-const DB_PREFIX = ''
-export const DB_ENDPOINTS = {
-  howtos: `${DB_PREFIX}v3_howtos`,
-  users: `${DB_PREFIX}v3_users`,
-  tags: `${DB_PREFIX}v3_tags`,
-  events: `${DB_PREFIX}v3_events`,
-  mappins: `${DB_PREFIX}v3_mappins`,
-  research: `${DB_PREFIX}research_rev20201020`,
-}
-export type IDBDocChange = functions.Change<FirebaseFirestore.DocumentSnapshot>
+import { dbEndpointSubcollections, generateDBEndpoints } from 'oa-shared'
+
+export const DB_ENDPOINTS = generateDBEndpoints()
+export const DB_ENDPOINT_SUBCOLLECTIONS = dbEndpointSubcollections
+
+export type IDBDocChange =
+  functions.Change<functions.firestore.DocumentSnapshot>

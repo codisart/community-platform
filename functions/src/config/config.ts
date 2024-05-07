@@ -4,9 +4,15 @@ import { config } from 'firebase-functions'
    $firebase functions:config:set ...
    to have additional config passed contact admin who will add it
 */
-const c = config() as configVars
+let c = config() as configVars
+// If running emulated or without firebase login provide dummy data instead
+if (Object.keys(c).length === 0) {
+  c = { analytics: {}, deployment: {}, integrations: {}, service: null } as any
+}
 // strip additional character escapes (\\n -> \n)
-c.service.private_key = c.service.private_key.replace(/\\n/g, '\n')
+if (c.service?.private_key) {
+  c.service.private_key = c.service.private_key.replace(/\\n/g, '\n')
+}
 
 export const CONFIG = c
 export const SERVICE_ACCOUNT_CONFIG = c.service
@@ -31,16 +37,22 @@ interface IAnalytics {
 interface IIntergrations {
   slack_webhook: string
   discord_webhook: string
+  discord_alert_channel_webhook: string
+  patreon_client_id: string
+  patreon_client_secret: string
 }
 interface IDeployment {
   site_url: string
 }
 
-interface configVars {
+export interface configVars {
   service: IServiceAccount
   analytics: IAnalytics
   integrations: IIntergrations
   deployment: IDeployment
+  prerender: {
+    api_key: string
+  }
 }
 
 // if passing complex config variables, may want to

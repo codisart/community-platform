@@ -4,7 +4,7 @@
   b) to enforce specific patterns when interacting with storage, such as setting metadata
 */
 
-import { storage } from 'src/utils/firebase'
+import { storage } from '../utils/firebase'
 
 export class Storage {
   /****************************************************************************** *
@@ -38,7 +38,11 @@ export class Storage {
         Helper Methods
 /****************************************************************************** */
 
-function generateUploadedFileMeta(snapshotMeta, url: string, filetype: string) {
+const generateUploadedFileMeta = (
+  snapshotMeta,
+  url: string,
+  filetype: string,
+) => {
   const fileInfo: IUploadedFileMeta = {
     downloadUrl: url,
     contentType: snapshotMeta.contentType,

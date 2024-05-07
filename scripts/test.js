@@ -1,3 +1,4 @@
+/*eslint-env node*/
 'use strict'
 
 // Do this as the first thing so that any code reading it knows the right env.
@@ -8,7 +9,7 @@ process.env.PUBLIC_URL = ''
 // Makes the script crash on unhandled rejections instead of silently
 // ignoring them. In the future, promise rejections that are not handled will
 // terminate the Node.js process with a non-zero exit code.
-process.on('unhandledRejection', err => {
+process.on('unhandledRejection', (err) => {
   throw err
 })
 
@@ -17,6 +18,7 @@ require('../config/env')
 
 const jest = require('jest')
 const execSync = require('child_process').execSync
+
 let argv = process.argv.slice(2)
 
 function isInGitRepository() {
@@ -52,7 +54,7 @@ if (
 
 // Jest doesn't have this option so we'll remove it
 if (argv.indexOf('--no-watch') !== -1) {
-  argv = argv.filter(arg => arg !== '--no-watch')
+  argv = argv.filter((arg) => arg !== '--no-watch')
 }
 
 jest.run(argv)

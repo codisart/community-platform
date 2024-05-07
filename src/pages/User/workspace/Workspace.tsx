@@ -1,47 +1,76 @@
-import { PROFILE_TYPES } from 'src/mocks/user_pp.mock'
-
+// assets profileType
+import MemberBadge from 'src/assets/images/badges/pt-member.svg'
 // Highlights
 import CollectionHighlight from 'src/assets/images/highlights/highlight-collection-point.svg'
 import LocalCommunityHighlight from 'src/assets/images/highlights/highlight-local-community.svg'
 import MachineHighlight from 'src/assets/images/highlights/highlight-machine-shop.svg'
-import WorkspaceHighlight from 'src/assets/images/highlights/highlight-workspace.svg'
 import MemberHighlight from 'src/assets/images/highlights/highlight-member.svg'
+import WorkspaceHighlight from 'src/assets/images/highlights/highlight-workspace.svg'
+import { getSupportedProfileTypes } from 'src/modules/profile'
+import { ProfileType } from 'src/modules/profile/types'
 
-// assets profileType
-import MemberBadge from 'src/assets/images/badges/pt-member.svg'
+import type { PlatformTheme } from 'oa-themes'
 
-function findWordspaceHighlight(workspaceType?: string): string {
+const findWordspaceHighlight = (workspaceType?: string): string => {
   switch (workspaceType) {
-    case 'workspace':
+    case ProfileType.WORKSPACE:
       return WorkspaceHighlight
-    case 'member':
+    case ProfileType.MEMBER:
       return MemberHighlight
-    case 'machine-builder':
+    case ProfileType.MACHINE_BUILDER:
       return MachineHighlight
-    case 'community-builder':
+    case ProfileType.COMMUNITY_BUILDER:
       return LocalCommunityHighlight
-    case 'collection-point':
+    case ProfileType.COLLECTION_POINT:
       return CollectionHighlight
     default:
       return MemberHighlight
   }
 }
 
-function findWorkspaceBadge(
+const findWorkspaceBadgeNullable = (
+  workspaceType?: string,
+  useCleanImage?: boolean,
+): string | null => {
+  if (!workspaceType) {
+    return null
+  }
+
+  const foundProfileTypeObj = getSupportedProfileTypes().find(
+    (type) => type.label === workspaceType,
+  )
+
+  if (!foundProfileTypeObj) {
+    return null
+  }
+
+  if (useCleanImage && foundProfileTypeObj.cleanImageSrc) {
+    return foundProfileTypeObj.cleanImageSrc
+  }
+
+  return foundProfileTypeObj.imageSrc || null
+}
+
+const findWorkspaceBadge = (
   workspaceType?: string,
   ifCleanImage?: boolean,
-): string {
+  verifiedUser?: boolean,
+  currentTheme?: PlatformTheme,
+): string => {
   if (!workspaceType) {
     return MemberBadge
   }
 
-  const foundProfileTypeObj = PROFILE_TYPES.find(
-    type => type.label === workspaceType,
+  const foundProfileTypeObj = getSupportedProfileTypes(currentTheme).find(
+    (type) => type.label === workspaceType,
   )
-
   if (foundProfileTypeObj) {
-    if (ifCleanImage && foundProfileTypeObj.cleanImageSrc) {
-      return foundProfileTypeObj.cleanImageSrc
+    if (ifCleanImage) {
+      if (verifiedUser && foundProfileTypeObj.cleanImageVerifiedSrc) {
+        return foundProfileTypeObj.cleanImageVerifiedSrc
+      } else if (foundProfileTypeObj.cleanImageSrc) {
+        return foundProfileTypeObj.cleanImageSrc
+      }
     }
     if (foundProfileTypeObj.imageSrc) {
       return foundProfileTypeObj.imageSrc
@@ -54,4 +83,5 @@ function findWorkspaceBadge(
 export default {
   findWordspaceHighlight,
   findWorkspaceBadge,
+  findWorkspaceBadgeNullable,
 }

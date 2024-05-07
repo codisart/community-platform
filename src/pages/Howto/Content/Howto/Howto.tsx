@@ -1,161 +1,183 @@
-import * as React from 'react'
-import { RouteComponentProps } from 'react-router'
-// TODO add loader (and remove this material-ui dep)
-import { inject, observer } from 'mobx-react'
-import { HowtoStore } from 'src/stores/Howto/howto.store'
+import React, { useEffect, useState } from 'react'
+import { Navigate, useParams } from 'react-router-dom'
+import { observer } from 'mobx-react'
+import {
+  ArticleCallToAction,
+  Button,
+  Loader,
+  UsefulStatsButton,
+  UserEngagementWrapper,
+} from 'oa-components'
+import { IModerationStatus } from 'oa-shared'
+import { trackEvent } from 'src/common/Analytics'
+import { useCommonStores } from 'src/common/hooks/useCommonStores'
+import { isUserVerifiedWithStore } from 'src/common/isUserVerified'
+import { isAllowedToEditContent } from 'src/utils/helpers'
+import { seoTagsUpdate } from 'src/utils/seo'
+import { Box } from 'theme-ui'
+
+import { HowToComments } from './HowToComments/HowToComments'
 import HowtoDescription from './HowtoDescription/HowtoDescription'
 import Step from './Step/Step'
-import { IHowtoDB } from 'src/models/howto.models'
-// import HowtoSummary from './HowtoSummary/HowtoSummary'
-import Text from 'src/components/Text'
-import { Box, Flex } from 'rebass/styled-components'
-import { Button } from 'src/components/Button'
-import styled from 'styled-components'
-import theme from 'src/themes/styled.theme'
-import WhiteBubble0 from 'src/assets/images/white-bubble_0.svg'
-import WhiteBubble1 from 'src/assets/images/white-bubble_1.svg'
-import WhiteBubble2 from 'src/assets/images/white-bubble_2.svg'
-import WhiteBubble3 from 'src/assets/images/white-bubble_3.svg'
-import { Link } from 'src/components/Links'
-import { zIndex } from 'src/themes/styled.theme'
-import { Loader } from 'src/components/Loader'
-import { Route } from 'react-router-dom'
-import { NotFoundPage } from '../../../NotFound/NotFound'
-import { UserStore } from 'src/stores/User/user.store'
-// The parent container injects router props along with a custom slug parameter (RouteComponentProps<IRouterCustomParams>).
-// We also have injected the doc store to access its methods to get doc by slug.
-// We can't directly provide the store as a prop though, and later user a get method to define it
-interface IRouterCustomParams {
-  slug: string
-}
-interface InjectedProps extends RouteComponentProps<IRouterCustomParams> {
-  howtoStore: HowtoStore
-  userStore: UserStore
-}
-interface IState {
-  howto?: IHowtoDB
-  isLoading: boolean
-  changedIsUseful?: boolean
-}
-const MoreBox = styled(Box)`
-  position: relative;
-  &:after {
-    content: '';
-    background-image: url(${WhiteBubble0});
-    width: 100%;
-    height: 100%;
-    z-index: ${zIndex.behind};
-    background-size: contain;
-    background-repeat: no-repeat;
-    position: absolute;
-    top: 55%;
-    transform: translate(-50%, -50%);
-    left: 50%;
-    max-width: 850px;
-    background-position: center 10%;
-  }
 
-  @media only screen and (min-width: ${theme.breakpoints[0]}) {
-    &:after {
-      background-image: url(${WhiteBubble1});
+import type { IUser, UserComment } from 'src/models'
+
+export const Howto = observer(() => {
+  const { slug } = useParams()
+  const { howtoStore, userStore, aggregationsStore, tagsStore } =
+    useCommonStores().stores
+  const [isLoading, setIsLoading] = useState<boolean>(true)
+
+  const loggedInUser = userStore.activeUser
+  const { activeHowto } = howtoStore
+
+  const onUsefulClick = async (
+    howtoId: string,
+    howToSlug: string,
+    eventCategory: string,
+  ) => {
+    const loggedInUser = howtoStore.activeUser
+    if (!loggedInUser?.userName) {
+      return null
     }
-  }
 
-  @media only screen and (min-width: ${theme.breakpoints[1]}) {
-    &:after {
-      background-image: url(${WhiteBubble2});
-    }
-  }
+    howtoStore.toggleUsefulByUser(howtoId, loggedInUser?.userName)
+    const hasUserVotedUseful = howtoStore.userVotedActiveHowToUseful
 
-  @media only screen and (min-width: ${theme.breakpoints[2]}) {
-    &:after {
-      background-image: url(${WhiteBubble3});
-    }
-  }
-`
-
-@inject('howtoStore', 'userStore')
-@observer
-export class Howto extends React.Component<
-  RouteComponentProps<IRouterCustomParams>,
-  IState
-> {
-  constructor(props: any) {
-    super(props)
-    this.state = {
-      isLoading: true,
-    }
-  }
-  // workaround used later so that userStore can be called in render method when not existing on
-  get injected() {
-    return this.props as InjectedProps
-  }
-
-  get store() {
-    return this.injected.howtoStore
-  }
-
-  private moderateHowto = async (accepted: boolean) => {
-    const _howto = this.store.activeHowto
-    if (_howto) {
-      _howto.moderation = accepted ? 'accepted' : 'rejected'
-      await this.store.moderateHowto(_howto)
-    }
-  }
-
-  private onUsefulClick = async (howtoId: string) => {
-    // Fire & forget
-    await this.injected.userStore.updateUsefulHowTos(howtoId)
-  }
-
-  public async componentDidMount() {
-    const slug = this.props.match.params.slug
-    await this.store.setActiveHowtoBySlug(slug)
-    this.setState({
-      isLoading: false,
+    trackEvent({
+      category: eventCategory,
+      action: hasUserVotedUseful ? 'HowtoUseful' : 'HowtoUsefulRemoved',
+      label: howToSlug,
     })
   }
 
-  public render() {
-    const { isLoading } = this.state
-    const loggedInUser = this.injected.userStore.activeUser
-    const { activeHowto } = this.store
-    if (activeHowto) {
-      return (
-        <>
-          <HowtoDescription
-            howto={activeHowto}
-            votedUsefulCount={this.store.howtoStats?.votedUsefulCount}
-            loggedInUser={loggedInUser}
-            needsModeration={this.store.needsModeration(activeHowto)}
-            userVotedUseful={this.store.userVotedActiveHowToUseful}
-            moderateHowto={this.moderateHowto}
-            onUsefulClick={() => this.onUsefulClick(activeHowto._id)}
-          />
-          {/* <HowtoSummary steps={howto.steps} howToSlug={howto.slug} /> */}
-          <Box mt={9}>
-            {activeHowto.steps.map((step: any, index: number) => (
-              <Step step={step} key={index} stepindex={index} />
-            ))}
-          </Box>
-          <MoreBox py={20} mt={20}>
-            <Text bold txtcenter fontSize={[4, 4, 5]}>
-              You're done.
-              <br />
-              Nice one!
-            </Text>
-            <Flex justifyContent={'center'} mt={2}>
-              <Link to={'/how-to/'}>
-                <Button variant={'secondary'} data-cy="go-back">
-                  Back
-                </Button>
-              </Link>
-            </Flex>
-          </MoreBox>
-        </>
-      )
-    } else {
-      return isLoading ? <Loader /> : <Route component={NotFoundPage} />
+  useEffect(() => {
+    const init = async () => {
+      await howtoStore.setActiveHowtoBySlug(slug)
+
+      seoTagsUpdate({
+        title: howtoStore.activeHowto?.title,
+        description: howtoStore.activeHowto?.description,
+        imageUrl: howtoStore.activeHowto?.cover_image?.downloadUrl,
+      })
+      setIsLoading(false)
     }
+    init()
+
+    return () => {
+      seoTagsUpdate({})
+      howtoStore.removeActiveHowto()
+    }
+  }, [])
+
+  if (isLoading) {
+    return <Loader />
   }
-}
+
+  if (!activeHowto) {
+    return (
+      <Navigate
+        to={{
+          pathname: `/how-to/`,
+          search:
+            '?search=' +
+            (slug || '').replace(/-/gi, ' ') +
+            '&source=how-to-not-found',
+        }}
+      />
+    )
+  }
+
+  const activeHowToComments: UserComment[] = howtoStore
+    .getActiveHowToComments()
+    .map(
+      (c): UserComment => ({
+        ...c,
+        isEditable:
+          [loggedInUser?._id, loggedInUser?.userName].includes(c._creatorId) ||
+          isAllowedToEditContent(activeHowto, loggedInUser as IUser),
+      }),
+    )
+
+  const { allTagsByKey } = tagsStore
+  const howto = {
+    ...activeHowto,
+    tagList:
+      activeHowto.tags &&
+      Object.keys(activeHowto.tags)
+        .map((t) => allTagsByKey[t])
+        .filter(Boolean),
+  }
+
+  const hasUserVotedUseful = howtoStore.userVotedActiveHowToUseful
+  const isVerified = isUserVerifiedWithStore(
+    howto._createdBy,
+    aggregationsStore,
+  )
+  return (
+    <>
+      <HowtoDescription
+        howto={howto}
+        key={activeHowto._id}
+        needsModeration={howtoStore.needsModeration(activeHowto)}
+        loggedInUser={loggedInUser as IUser}
+        commentsCount={howtoStore.commentsCount}
+        votedUsefulCount={howtoStore.votedUsefulCount}
+        hasUserVotedUseful={hasUserVotedUseful}
+        onUsefulClick={() =>
+          onUsefulClick(howto._id, howto.slug, 'HowtoDescription')
+        }
+      />
+      <Box mt={9}>
+        {activeHowto.steps.map((step: any, index: number) => (
+          <Step step={step} key={index} stepindex={index} />
+        ))}
+      </Box>
+      <UserEngagementWrapper>
+        <ArticleCallToAction
+          author={{
+            userName: howto._createdBy,
+            countryCode: howto.creatorCountry,
+            isVerified,
+          }}
+        >
+          <Button
+            sx={{ fontSize: 2 }}
+            onClick={() => {
+              trackEvent({
+                category: 'ArticleCallToAction',
+                action: 'ScrollHowtoComment',
+                label: howto.slug,
+              })
+              document
+                .querySelector('[data-target="create-comment-container"]')
+                ?.scrollIntoView({
+                  behavior: 'smooth',
+                })
+              ;(
+                document.querySelector(
+                  '[data-cy="comments-form"]',
+                ) as HTMLTextAreaElement
+              )?.focus()
+
+              return false
+            }}
+          >
+            Leave a comment
+          </Button>
+          {howto.moderation === IModerationStatus.ACCEPTED && (
+            <UsefulStatsButton
+              votedUsefulCount={howtoStore.votedUsefulCount}
+              hasUserVotedUseful={hasUserVotedUseful}
+              isLoggedIn={!!loggedInUser}
+              onUsefulClick={() => {
+                onUsefulClick(howto._id, howto.slug, 'ArticleCallToAction')
+              }}
+            />
+          )}
+        </ArticleCallToAction>
+        <HowToComments comments={activeHowToComments} />
+      </UserEngagementWrapper>
+    </>
+  )
+})

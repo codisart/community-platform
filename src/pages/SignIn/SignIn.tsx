@@ -1,21 +1,15 @@
-import * as React from 'react'
-import Flex from 'src/components/Flex'
-import { RouteComponentProps, withRouter } from 'react-router'
-import { Redirect } from 'react-router'
-import Heading from 'src/components/Heading'
-import { Button } from 'src/components/Button'
-import Text from 'src/components/Text'
-import { Link } from 'src/components/Links'
-import { InputField } from 'src/components/Form/Fields'
-import { inject, observer } from 'mobx-react'
-import { Form, Field } from 'react-final-form'
-import { UserStore } from 'src/stores/User/user.store'
-import {
-  TextNotification,
-  ITextNotificationProps,
-} from 'src/components/Notification/TextNotification'
-import { getFriendlyMessage } from 'src/utils/helpers'
+import React, { useState } from 'react'
+import { Field, Form } from 'react-final-form'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { observer } from 'mobx-react'
+import { Button, FieldInput, TextNotification } from 'oa-components'
+import { getFriendlyMessage } from 'oa-shared'
+import { PasswordField } from 'src/common/Form/PasswordField'
+import { useCommonStores } from 'src/common/hooks/useCommonStores'
 import { required } from 'src/utils/validators'
+import { Box, Card, Flex, Heading, Label, Text } from 'theme-ui'
+
+import type { TextNotificationProps } from 'oa-components'
 
 interface IFormValues {
   email: string
@@ -26,11 +20,12 @@ interface IState {
   errorMsg?: string
   disabled?: boolean
   authProvider?: IAuthProvider
-  notificationProps?: ITextNotificationProps
+  notificationProps?: Pick<TextNotificationProps, 'isVisible' | 'variant'> & {
+    text: string
+  }
 }
-interface IProps extends RouteComponentProps<any> {
+interface IProps {
   onChange?: (e: React.FormEvent<any>) => void
-  userStore?: UserStore
   preloadValues?: any
 }
 
@@ -48,130 +43,113 @@ const AUTH_PROVIDERS: { [provider: string]: IAuthProvider } = {
   },
 }
 
-@inject('userStore')
-@observer
-class SignInPage extends React.Component<IProps, IState> {
-  static defaultProps: Partial<IProps>
-  constructor(props: IProps) {
-    super(props)
-    this.state = {
+const SignInPage = observer((props: IProps) => {
+  const { userStore } = useCommonStores().stores
+  const navigate = useNavigate()
+  const [{ authProvider, notificationProps, errorMsg }, setState] =
+    useState<IState>({
       // if passed form values from props initially populate
       formValues: {
         email: props.preloadValues ? props.preloadValues.email : '',
         password: props.preloadValues ? props.preloadValues.password : '',
       },
       authProvider: AUTH_PROVIDERS.firebase,
-    }
+    })
 
-    this.hideNotification = this.hideNotification.bind(this)
-  }
-
-  async onLoginSubmit(v: IFormValues) {
-    this.setState({ disabled: true })
-    const provider = (this.state.authProvider as IAuthProvider).provider
+  const onLoginSubmit = async (v: IFormValues) => {
+    setState((state) => ({ ...state, disabled: true }))
     try {
-      await this.props.userStore!.login(provider, v.email, v.password)
-      this.props.history.goBack()
+      await userStore!.login(v.email, v.password)
+      navigate(-1)
     } catch (error) {
       const friendlyErrorMessage = getFriendlyMessage(error.code)
-      this.setState({ errorMsg: friendlyErrorMessage, disabled: false })
+      setState((state) => ({
+        ...state,
+        errorMsg: friendlyErrorMessage,
+        disabled: false,
+      }))
     }
   }
 
-  async resetPasword(inputEmail: string) {
+  const resetPasword = async (inputEmail: string) => {
     try {
-      await this.props.userStore!.sendPasswordResetEmail(inputEmail)
-      this.setState({
+      await userStore!.sendPasswordResetEmail(inputEmail)
+      setState((state) => ({
+        ...state,
         notificationProps: {
-          show: true,
+          isVisible: true,
           text: 'Reset email sent',
-          icon: 'email',
-          type: 'confirmation',
+          variant: 'success',
         },
-      })
+      }))
     } catch (error) {
-      this.setState({
+      setState((state) => ({
+        ...state,
         notificationProps: {
-          show: true,
+          isVisible: true,
           text: error.code,
-          icon: 'close',
-          type: 'error',
+          variant: 'failure',
         },
-      })
+      }))
     }
   }
 
-  hideNotification = () => {
-    this.setState({
-      notificationProps: {
-        ...this.state.notificationProps,
-        show: false,
-      },
-    })
+  if (userStore!.user) {
+    // User logged in
+    return <Navigate to={'/'} />
   }
 
-  public render() {
-    const { authProvider, notificationProps } = this.state
-    if (this.props.userStore!.user) {
-      // User logged in
-      return <Redirect to={'/'} />
-    }
-    return (
-      <Form
-        onSubmit={v => this.onLoginSubmit(v as IFormValues)}
-        render={({ submitting, values, invalid, handleSubmit }) => {
-          // eslint-disable-next-line
-          const disabled = invalid || submitting
-          return (
-            <>
-              <form data-cy="login-form" onSubmit={handleSubmit}>
-                <Flex
-                  bg="inherit"
-                  px={2}
-                  width={1}
-                  css={{ maxWidth: '620px' }}
-                  mx={'auto'}
-                  mt={['20px', '100px']}
-                  mb={3}
-                >
-                  <Flex flexDirection={'column'} width={1}>
-                    <Flex
-                      card
-                      mediumRadius
-                      bg={'softblue'}
-                      px={3}
-                      py={2}
-                      width={1}
-                    >
-                      <Heading medium width={1}>
-                        Welcome back
-                      </Heading>
+  return (
+    <Form
+      onSubmit={(v) => onLoginSubmit(v as IFormValues)}
+      render={({ submitting, values, invalid, handleSubmit }) => {
+        return (
+          <>
+            <form data-cy="login-form" onSubmit={handleSubmit}>
+              <Flex
+                bg="inherit"
+                px={2}
+                sx={{ width: '100%' }}
+                css={{ maxWidth: '620px' }}
+                mx={'auto'}
+                mt={['20px', '100px']}
+                mb={3}
+              >
+                <Flex sx={{ flexDirection: 'column', width: '100%' }}>
+                  <Card bg={'softblue'}>
+                    <Flex px={3} py={2}>
+                      <Heading>Welcome back</Heading>
                     </Flex>
+                  </Card>
+                  <Card mt={3}>
                     <Flex
-                      card
-                      mediumRadius
-                      bg={'white'}
-                      width={1}
-                      mt={3}
                       px={4}
                       pt={0}
                       pb={4}
-                      flexWrap="wrap"
-                      flexDirection="column"
+                      sx={{
+                        flexWrap: 'wrap',
+                        flexDirection: 'column',
+                        width: '100%',
+                      }}
                     >
                       {/* PauthProvider Provider Select */}
-                      {!this.state.authProvider && (
+                      {!authProvider && (
                         <>
                           <Text mb={3} mt={3}>
                             Login with :
                           </Text>
-                          {Object.values(AUTH_PROVIDERS).map(p => (
+                          {Object.values(AUTH_PROVIDERS).map((p) => (
                             <Button
-                              width={1}
+                              sx={{ width: '100%' }}
                               key={p.provider}
                               mb={2}
                               variant="outline"
-                              onClick={() => this.setState({ authProvider: p })}
+                              onClick={() =>
+                                setState((state) => ({
+                                  ...state,
+                                  authProvider: p,
+                                }))
+                              }
                             >
                               {p.buttonLabel}
                             </Button>
@@ -179,61 +157,74 @@ class SignInPage extends React.Component<IProps, IState> {
                         </>
                       )}
                       {/* Login Form */}
-                      {this.state.authProvider && (
+                      {authProvider && (
                         <>
-                          <Heading small py={4} width={1}>
+                          <Heading
+                            variant="small"
+                            py={4}
+                            sx={{ width: '100%' }}
+                          >
                             Log in to your account
                           </Heading>
-                          <Flex flexDirection={'column'} mb={3}>
-                            <Text as={'label'} small htmlFor="title">
+                          <Flex sx={{ flexDirection: 'column' }} mb={3}>
+                            <Label htmlFor="title">
                               {authProvider!.inputLabel}
-                            </Text>
+                            </Label>
                             <Field
                               name="email"
                               type="email"
                               data-cy="email"
-                              component={InputField}
+                              component={FieldInput}
                               validate={required}
                             />
                           </Flex>
-                          <Flex flexDirection={'column'} mb={3}>
-                            <Text as={'label'} small htmlFor="title">
-                              Password
-                            </Text>
-                            <Field
+                          <Flex sx={{ flexDirection: 'column' }} mb={3}>
+                            <Label htmlFor="title">Password</Label>
+                            <PasswordField
                               name="password"
-                              type="password"
                               data-cy="password"
-                              component={InputField}
+                              component={FieldInput}
                               validate={required}
                             />
                           </Flex>
-                          <Text color={'red'}>{this.state.errorMsg}</Text>
-                          <Flex mb={3} justifyContent={'space-between'}>
-                            <Text small color={'grey'} mt={2}>
+                          <Text color="red">{errorMsg}</Text>
+                          <Flex mb={1} sx={{ justifyContent: 'space-between' }}>
+                            <Text sx={{ fontSize: 1 }} color={'grey'} mt={2}>
                               <Link to={'/sign-up'} data-cy="no-account">
                                 Don't have an account?
                               </Link>
                             </Text>
-                            <Text small color={'grey'} mt={2}>
+                            <Text sx={{ fontSize: 1 }} color={'grey'} mt={2}>
                               <Link
                                 to="#"
                                 data-cy="lost-password"
-                                onClick={() => this.resetPasword(values.email)}
+                                onClick={() => resetPasword(values.email)}
                               >
                                 Lost password?
                               </Link>
-                              <TextNotification
-                                {...notificationProps}
-                                hideNotificationCb={this.hideNotification}
-                              />
                             </Text>
                           </Flex>
 
+                          {notificationProps && (
+                            <Box
+                              sx={{
+                                marginBottom: 3,
+                              }}
+                            >
+                              <TextNotification
+                                isVisible={notificationProps.isVisible}
+                                variant={notificationProps.variant}
+                              >
+                                {getFriendlyMessage(notificationProps?.text)}
+                              </TextNotification>
+                            </Box>
+                          )}
+
                           <Flex>
                             <Button
+                              large
                               data-cy="submit"
-                              width={1}
+                              sx={{ width: '100%', justifyContent: 'center' }}
                               variant={'primary'}
                               disabled={submitting || invalid}
                               type="submit"
@@ -244,15 +235,15 @@ class SignInPage extends React.Component<IProps, IState> {
                         </>
                       )}
                     </Flex>
-                  </Flex>
+                  </Card>
                 </Flex>
-              </form>
-            </>
-          )
-        }}
-      />
-    )
-  }
-}
+              </Flex>
+            </form>
+          </>
+        )
+      }}
+    />
+  )
+})
 
-export default withRouter(SignInPage)
+export default SignInPage

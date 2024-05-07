@@ -1,119 +1,219 @@
 import React from 'react'
-import { Flex } from 'rebass/styled-components'
-import styled from 'styled-components'
-import Profile from 'src/pages/common/Header/Menu/Profile/Profile'
+import { useTheme, withTheme } from '@emotion/react'
+import { motion } from 'framer-motion'
+import { observer } from 'mobx-react'
+import { Button } from 'oa-components'
+import { UserRole } from 'oa-shared'
+import { useCommonStores } from 'src/common/hooks/useCommonStores'
+import { isModuleSupported, MODULE } from 'src/modules'
+import Logo from 'src/pages/common/Header/Menu/Logo/Logo'
 import MenuDesktop from 'src/pages/common/Header/Menu/MenuDesktop'
 import MenuMobilePanel from 'src/pages/common/Header/Menu/MenuMobile/MenuMobilePanel'
-import posed, { PoseGroup } from 'react-pose'
-import Logo from 'src/pages/common/Header/Menu/Logo/Logo'
-import theme from 'src/themes/styled.theme'
-import HamburgerMenu from 'react-hamburger-menu'
-import { observer, inject } from 'mobx-react'
-import { MobileMenuStore } from 'src/stores/MobileMenu/mobilemenu.store'
+import { NotificationsDesktop } from 'src/pages/common/Header/Menu/Notifications/NotificationsDesktop'
+import { NotificationsIcon } from 'src/pages/common/Header/Menu/Notifications/NotificationsIcon'
+import { NotificationsMobile } from 'src/pages/common/Header/Menu/Notifications/NotificationsMobile'
+import Profile from 'src/pages/common/Header/Menu/Profile/Profile'
+import { Flex, Text } from 'theme-ui'
 
-interface IProps {}
+import { getFormattedNotifications } from './getFormattedNotifications'
+import { MobileMenuContext } from './MobileMenuContext'
 
-interface IInjectedProps extends IProps {
-  mobileMenuStore: MobileMenuStore
+import type { ThemeWithName } from 'oa-themes'
+
+const MobileNotificationsWrapper = ({ children }) => {
+  const theme = useTheme()
+
+  return (
+    <Flex
+      sx={{
+        position: 'relative',
+        [`@media only screen and (max-width: ${theme.breakpoints[1]})`]: {
+          display: 'flex',
+          marginLeft: '1em',
+          marginRight: 'auto',
+        },
+        [`@media only screen and (min-width: ${theme.breakpoints[1]})`]: {
+          display: 'none',
+        },
+      }}
+    >
+      {children}
+    </Flex>
+  )
 }
 
-const MobileMenuWrapper = styled(Flex)`
-  position: relative;
+const MobileMenuWrapper = ({ children, ...props }) => (
+  <Flex
+    {...props}
+    sx={{ position: 'relative', display: ['flex', 'flex', 'none'] }}
+  >
+    {children}
+  </Flex>
+)
 
-  @media only screen and (max-width: ${theme.breakpoints[1]}) {
-    display: flex;
+const AnimationContainer = (props: any) => {
+  const variants = {
+    visible: {
+      duration: 0.25,
+      top: '0',
+    },
+    hidden: {
+      duration: 0.25,
+      top: '-100%',
+    },
   }
+  return (
+    <motion.div
+      layout
+      style={{ position: 'relative' }}
+      initial="hidden"
+      animate="visible"
+      variants={variants}
+    >
+      {props.children}
+    </motion.div>
+  )
+}
 
-  @media only screen and (min-width: ${theme.breakpoints[1]}) {
-    display: none;
-  }
-`
-const DesktopMenuWrapper = styled(Flex)`
-  position: relative;
+const Header = observer(({ theme }: { theme: ThemeWithName }) => {
+  const { userNotificationsStore } = useCommonStores().stores
+  const user = userNotificationsStore.user
+  const notifications = getFormattedNotifications(
+    userNotificationsStore.getUnreadNotifications(),
+  )
+  const [showMobileNotifications, setShowMobileNotifications] =
+    React.useState(false)
+  const areThereNotifications = Boolean(notifications.length)
+  const isLoggedInUser = !!user
+  const [isVisible, setIsVisible] = React.useState(false)
 
-  @media only screen and (max-width: ${theme.breakpoints[1]}) {
-    display: none;
-  }
-
-  @media only screen and (min-width: ${theme.breakpoints[1]}) {
-    display: flex;
-  }
-`
-
-const AnimationContainer = posed.div({
-  enter: {
-    duration: 250,
-    position: 'relative',
-    top: '0',
-  },
-  exit: {
-    duration: 250,
-    position: 'relative',
-    top: '-100%',
-  },
+  return (
+    <MobileMenuContext.Provider
+      value={{
+        isVisible,
+        setIsVisible,
+      }}
+    >
+      <Flex
+        data-cy="header"
+        bg="white"
+        pl={[4, 4, 0]}
+        pr={[4, 4, 0]}
+        sx={{
+          zIndex: theme.zIndex.header,
+          position: 'relative',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          minHeight: [null, null, 80],
+        }}
+      >
+        <Flex>
+          <Flex>
+            <Logo />
+          </Flex>
+          {isLoggedInUser &&
+            (user.userRoles || []).includes(UserRole.BETA_TESTER) && (
+              <Flex
+                className="user-beta-icon"
+                ml={4}
+                sx={{ alignItems: 'center' }}
+              >
+                <Text
+                  sx={{
+                    color: 'white',
+                    fontWeight: 'bold',
+                    fontSize: '1.4rem',
+                    borderRadius: '4px',
+                    padding: '2px 6px',
+                    backgroundColor: 'lightgrey',
+                  }}
+                >
+                  BETA
+                </Text>
+              </Flex>
+            )}
+        </Flex>
+        {isLoggedInUser && (
+          <MobileNotificationsWrapper>
+            <NotificationsIcon
+              onCLick={() =>
+                setShowMobileNotifications(!showMobileNotifications)
+              }
+              isMobileMenuActive={showMobileNotifications}
+              areThereNotifications={areThereNotifications}
+            />
+          </MobileNotificationsWrapper>
+        )}
+        <Flex
+          className="menu-desktop"
+          px={2}
+          sx={{
+            position: 'relative',
+            display: ['none', 'none', 'flex'],
+          }}
+        >
+          <MenuDesktop />
+          {isLoggedInUser && (
+            <>
+              <NotificationsDesktop
+                notifications={notifications}
+                markAllRead={() =>
+                  userNotificationsStore.markAllNotificationsRead()
+                }
+                markAllNotified={() =>
+                  userNotificationsStore.markAllNotificationsNotified()
+                }
+              />
+            </>
+          )}
+          {isModuleSupported(MODULE.USER) && <Profile isMobile={false} />}
+        </Flex>
+        <MobileMenuWrapper className="menu-mobile">
+          <Flex pl={5}>
+            <Button
+              showIconOnly={true}
+              icon={isVisible ? 'close' : 'menu'}
+              onClick={() => setIsVisible(!isVisible)}
+              large={true}
+              mr={-3}
+              sx={{
+                bg: 'white',
+                borderWidth: '0px',
+                '&:hover': {
+                  bg: 'white',
+                },
+                '&:active': {
+                  bg: 'white',
+                },
+              }}
+            />
+          </Flex>
+        </MobileMenuWrapper>
+      </Flex>
+      {isVisible && (
+        <AnimationContainer key={'mobilePanelContainer'}>
+          <MobileMenuWrapper>
+            <MenuMobilePanel />
+          </MobileMenuWrapper>
+        </AnimationContainer>
+      )}
+      {showMobileNotifications && (
+        <AnimationContainer key={'mobileNotificationsContainer'}>
+          <MobileMenuWrapper>
+            <NotificationsMobile
+              notifications={notifications}
+              markAllRead={() =>
+                userNotificationsStore.markAllNotificationsRead()
+              }
+              markAllNotified={() =>
+                userNotificationsStore.markAllNotificationsNotified()
+              }
+            />
+          </MobileMenuWrapper>
+        </AnimationContainer>
+      )}
+    </MobileMenuContext.Provider>
+  )
 })
 
-@inject('mobileMenuStore')
-@observer
-export class Header extends React.Component<IProps> {
-  // eslint-disable-next-line
-  constructor(props: any) {
-    super(props)
-  }
-
-  get injected() {
-    return this.props as IInjectedProps
-  }
-
-  render() {
-    const menu = this.injected.mobileMenuStore
-    return (
-      <>
-        <Flex
-          data-cy="header"
-          bg="white"
-          justifyContent="space-between"
-          alignItems="center"
-          pl={[4, 4, 0]}
-          pr={[4, 4, 0]}
-          sx={{ zIndex: theme.zIndex.header, position: 'relative' }}
-          minHeight={[null, null, 80]}
-        >
-          <Flex>
-            <Logo isMobile={true} />
-          </Flex>
-          <DesktopMenuWrapper className="menu-desktop" px={2}>
-            <MenuDesktop />
-            <Profile isMobile={false} />
-          </DesktopMenuWrapper>
-          <MobileMenuWrapper className="menu-mobile">
-            <Flex pl={5}>
-              <HamburgerMenu
-                isOpen={menu.showMobilePanel || false}
-                menuClicked={() => menu.toggleMobilePanel()}
-                width={18}
-                height={15}
-                strokeWidth={1}
-                rotate={0}
-                color="black"
-                borderRadius={0}
-                animationDuration={0.3}
-              />
-            </Flex>
-          </MobileMenuWrapper>
-        </Flex>
-        <PoseGroup>
-          {menu.showMobilePanel && (
-            <AnimationContainer key={'mobilePanelContainer'}>
-              <MobileMenuWrapper>
-                <MenuMobilePanel />
-              </MobileMenuWrapper>
-            </AnimationContainer>
-          )}
-        </PoseGroup>
-      </>
-    )
-  }
-}
-
-export default Header
+export default withTheme(Header)

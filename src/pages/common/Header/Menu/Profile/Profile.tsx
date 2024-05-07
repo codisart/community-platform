@@ -1,94 +1,106 @@
-import React from 'react'
-import ClickAwayListener from '@material-ui/core/ClickAwayListener'
-import { UserStore } from 'src/stores/User/user.store'
-import { inject, observer } from 'mobx-react'
-import Flex from 'src/components/Flex'
-import { Avatar } from 'src/components/Avatar'
-import { ProfileModal } from 'src/components/ProfileModal/ProfileModal'
-import theme from 'src/themes/styled.theme'
+import React, { useState } from 'react'
+import Foco from 'react-foco'
+import { observer } from 'mobx-react'
+import { MemberBadge } from 'oa-components'
+import { useCommonStores } from 'src/common/hooks/useCommonStores'
 import MenuMobileLink from 'src/pages/common/Header/Menu/MenuMobile/MenuMobileLink'
-import ProfileButtons from './ProfileButtons'
-import { MenuMobileLinkContainer } from '../MenuMobile/MenuMobilePanel'
+import { ProfileModal } from 'src/pages/common/Header/Menu/ProfileModal/ProfileModal'
 import { COMMUNITY_PAGES_PROFILE } from 'src/pages/PageList'
+import { Box, Flex } from 'theme-ui'
+
+import ProfileButtons from './ProfileButtons'
+
+import './profile.css'
 
 interface IState {
   showProfileModal: boolean
+  isLoading: boolean
 }
 
 interface IProps {
   isMobile: boolean
 }
 
-interface IInjectedProps extends IProps {
-  userStore: UserStore
-}
+const Profile = observer((props: IProps) => {
+  const { userStore } = useCommonStores().stores
+  const [state, setState] = useState<IState>({
+    showProfileModal: false,
+    isLoading: true,
+  })
 
-@inject('userStore')
-@observer
-export default class Profile extends React.Component<IProps, IState> {
-  constructor(props: IProps) {
-    super(props)
-    this.state = {
-      showProfileModal: false,
-    }
-  }
-  get injected() {
-    return this.props as IInjectedProps
+  const toggleProfileModal = () => {
+    setState((state) => ({
+      ...state,
+      showProfileModal: !state.showProfileModal,
+    }))
   }
 
-  toggleProfileModal() {
-    this.setState({ showProfileModal: !this.state.showProfileModal })
-  }
+  const user = userStore.user
 
-  render() {
-    const user = this.injected.userStore.user
-    const { showProfileModal } = this.state
+  if (typeof user === 'undefined' && state.isLoading) {
     return (
-      <>
-        {user ? (
-          this.props.isMobile ? (
-            <MenuMobileLinkContainer style={{ borderBottom: 'none' }}>
-              <MenuMobileLink
-                path={'/u/' + user.userName}
-                content={'Profile'}
-              />
-              {COMMUNITY_PAGES_PROFILE.map(page => (
-                <MenuMobileLink
-                  path={page.path}
-                  key={page.path}
-                  content={page.title}
-                />
-              ))}
-              <MenuMobileLink
-                path={window.location.pathname}
-                content={'Log out'}
-                style={{ color: theme.colors.silver }}
-                onClick={() => this.injected.userStore.logout()}
-              />
-            </MenuMobileLinkContainer>
-          ) : (
-            <div data-cy="user-menu">
-              <Flex onClick={() => this.toggleProfileModal()} ml={1}>
-                <Avatar
-                  userName={user.userName}
-                  profileType={user.profileType}
-                />
-              </Flex>
-              <Flex>
-                {showProfileModal && (
-                  <ClickAwayListener
-                    onClickAway={() => this.toggleProfileModal()}
-                  >
-                    <ProfileModal username={user.userName} />
-                  </ClickAwayListener>
-                )}
-              </Flex>
-            </div>
-          )
-        ) : (
-          <ProfileButtons isMobile={this.props.isMobile} />
-        )}
-      </>
+      <Box
+        sx={{
+          width: '143px',
+        }}
+      />
     )
   }
-}
+
+  return (
+    <>
+      {user ? (
+        props.isMobile ? (
+          <Box
+            sx={{
+              borderBottom: 'none',
+              borderColor: 'lightgrey',
+              borderTop: '1px solid',
+              mt: 1,
+            }}
+          >
+            <MenuMobileLink path={'/u/' + user.userName} content={'Profile'} />
+            {COMMUNITY_PAGES_PROFILE.map((page) => (
+              <MenuMobileLink
+                path={page.path}
+                key={page.path}
+                content={page.title}
+              />
+            ))}
+            <MenuMobileLink
+              path={window.location.pathname}
+              content={'Log out'}
+              onClick={() => userStore.logout()}
+            />
+          </Box>
+        ) : (
+          <div
+            data-cy="user-menu"
+            style={{
+              width: '93px',
+            }}
+          >
+            <Flex
+              onClick={() => toggleProfileModal()}
+              ml={1}
+              sx={{ height: '100%' }}
+            >
+              <MemberBadge profileType={user.profileType} />
+            </Flex>
+            <Flex>
+              {state.showProfileModal && (
+                <Foco onClickOutside={() => toggleProfileModal()}>
+                  <ProfileModal username={user.userName} />
+                </Foco>
+              )}
+            </Flex>
+          </div>
+        )
+      ) : (
+        <ProfileButtons isMobile={props.isMobile} />
+      )}
+    </>
+  )
+})
+
+export default Profile

@@ -1,63 +1,41 @@
-import * as React from 'react'
-import { Route, Redirect, RouteProps } from 'react-router'
-import { inject, observer } from 'mobx-react'
-import { UserStore } from 'src/stores/User/user.store'
-import { UserRole } from 'src/models/user.models'
+import { Navigate } from 'react-router-dom'
+import { observer } from 'mobx-react'
+import { BlockedRoute } from 'oa-components'
+import { AuthWrapper } from 'src/common/AuthWrapper'
+
+import type { UserRole } from 'oa-shared'
 
 /*
     This provides a <AuthRoute /> component that can be used in place of <Route /> components
-    to allow user access only if authenticated. Could also be used to direct to login and back,
-    example here: https://tylermcginnis.com/react-router-protected-routes-authentication/
+    to allow user access only if authenticated.
 */
 
-interface IProps extends RouteProps {
-  userStore?: UserStore
-  redirectPath: string
-  component: React.ComponentClass
-  roleRequired?: UserRole
-}
-interface IState {}
-@inject('userStore')
-@observer
-export class AuthRoute extends React.Component<IProps, IState> {
-  static defaultProps: Partial<IProps>
+export const AuthRoute = observer(
+  (props: {
+    roleRequired?: UserRole | UserRole[]
+    /** Page to redirect if role not satisfied (default shows message) */
+    redirect?: string
+    children: React.ReactNode
+  }) => {
+    const { roleRequired, redirect, children } = props
 
-  isUserAuthenticated() {
-    const { user } = this.props.userStore!
-    const { roleRequired } = this.props
-    if (user) {
-      if (roleRequired) {
-        return user.userRoles && user.userRoles.includes(roleRequired)
-      } else {
-        return true
-      }
-    }
-    return false
-  }
-
-  render() {
-    // user ! to let typescript know property will exist (injected) instead of additional getter method
-    const isAuthenticated = this.isUserAuthenticated()
-    const { component: Component, redirectPath, ...rest } = this.props
     return (
-      <Route
-        {...rest}
-        render={props =>
-          isAuthenticated === true ? (
-            <Component {...props} />
+      <AuthWrapper
+        roleRequired={roleRequired}
+        fallback={
+          redirect ? (
+            <Navigate to={redirect} />
           ) : (
-            <Redirect
-              to={{
-                pathname: redirectPath,
-                state: { from: props.location },
-              }}
-            />
+            <BlockedRoute>
+              {roleRequired
+                ? `${roleRequired} role required to access this page. Please contact an admin.`
+                : 'Please login to access this page'}
+            </BlockedRoute>
           )
         }
-      />
+      >
+        {children}
+      </AuthWrapper>
     )
-  }
-}
-AuthRoute.defaultProps = {
-  redirectPath: '/',
-}
+  },
+)

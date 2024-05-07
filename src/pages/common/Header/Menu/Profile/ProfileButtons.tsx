@@ -1,76 +1,83 @@
-import React from 'react'
-import theme from 'src/themes/styled.theme'
-import styled from 'styled-components'
-import { Box } from 'rebass'
+import { Box, Flex } from 'theme-ui'
+
 import ProfileButtonItem from './ProfileButtonItem'
+
+import './profile.css'
 
 interface IProps {
   isMobile?: boolean
 }
 
-const PanelButton = styled(Box)`
-  padding-top: ${theme.space[1]}px;
-  padding-bottom: ${theme.space[2]}px;
-`
+const ProfileButtons = (props: IProps) => {
+  const _commonMobileBtnStyle = {
+    fontSize: 1,
+    justifyContent: 'center',
+    textAlign: 'center',
+    width: '100%',
+  }
 
-export class ProfileButtons extends React.Component<IProps> {
-  render() {
+  if (props.isMobile) {
     return (
-      <>
-        {this.props.isMobile ? (
-          <>
-            <PanelButton>
-              <ProfileButtonItem
-                link={'/sign-in'}
-                text="Login"
-                variant="secondary"
-                style={{
-                  fontWeight: 'bold',
-                  marginRight: 2,
-                  display: 'inline-block',
-                  width: 100,
-                  fontSize: theme.fontSizes[1],
-                }}
-                isMobile={true}
-              />
-            </PanelButton>
-            <PanelButton>
-              <ProfileButtonItem
-                link={'/sign-up'}
-                text="Join"
-                variant="colorful"
-                isMobile={true}
-                style={{
-                  display: 'inline-block',
-                  width: 100,
-                  fontSize: theme.fontSizes[1],
-                }}
-              />
-            </PanelButton>
-          </>
-        ) : (
-          <>
-            <ProfileButtonItem
-              link={'/sign-in'}
-              text="Login"
-              variant="secondary"
-              style={{
-                fontWeight: 'bold',
-                marginRight: theme.radii[2],
-                fontSize: theme.fontSizes[2],
-              }}
-            />
-            <ProfileButtonItem
-              link={'/sign-up'}
-              text="Join"
-              variant="colorful"
-              style={{ fontSize: theme.fontSizes[2] }}
-            />
-          </>
-        )}
-      </>
+      <Flex
+        className="util__fade-in"
+        sx={{
+          width: '100%',
+          justifyContent: 'center',
+        }}
+      >
+        <Box
+          sx={{
+            pt: 1,
+            pb: 2,
+            display: 'block',
+          }}
+        >
+          <ProfileButtonItem
+            link={'/sign-in'}
+            text="Login"
+            variant="secondary"
+            sx={{
+              ..._commonMobileBtnStyle,
+              fontWeight: 'bold',
+              marginRight: 2,
+              marginBottom: 2,
+            }}
+            isMobile={true}
+          />
+          <ProfileButtonItem
+            link={'/sign-up'}
+            text="Join"
+            variant="outline"
+            isMobile={true}
+            sx={{
+              ..._commonMobileBtnStyle,
+            }}
+          />
+        </Box>
+      </Flex>
     )
   }
+
+  return (
+    <>
+      <ProfileButtonItem
+        link={'/sign-in'}
+        text="Login"
+        variant="secondary"
+        sx={{
+          fontWeight: 'bold',
+          marginRight: 2,
+          fontSize: 2,
+        }}
+      />
+      <ProfileButtonItem
+        link={'/sign-up'}
+        text="Join"
+        variant="outline"
+        sx={{ fontSize: 2 }}
+      />
+    </>
+  )
 }
 
 export default ProfileButtons

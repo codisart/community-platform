@@ -1,26 +1,35 @@
-import React from 'react'
+import { useCommonStores } from 'src/common/hooks/useCommonStores'
+import { MODULE } from 'src/modules'
+import {
+  ResearchStore,
+  ResearchStoreContext,
+} from 'src/stores/Research/research.store'
+
 import ResearchRoutes from './research.routes'
-import { ResearchStore, ResearchStoreContext } from './research.store'
+
+import type { IPageMeta } from 'src/pages/PageList'
+
+/**
+ * Wraps the research module routing elements with the research module provider
+ */
+const ResearchModuleContainer = () => {
+  const rootStore = useCommonStores()
+  return (
+    <ResearchStoreContext.Provider value={new ResearchStore(rootStore)}>
+      <ResearchRoutes />
+    </ResearchStoreContext.Provider>
+  )
+}
 
 /**
  * Default export format used for integrating with the platform
  * @description The research module enables users to share ongoing updates for
  * experimental projects
  */
-export const ResearchModule = {
+export const ResearchModule: IPageMeta = {
+  moduleName: MODULE.RESEARCH,
   path: '/research',
   component: <ResearchModuleContainer />,
   title: 'Research',
   description: 'Welcome to research',
-}
-
-/**
- * Wraps the research module routing elements with the research module provider
- */
-function ResearchModuleContainer() {
-  return (
-    <ResearchStoreContext.Provider value={new ResearchStore()}>
-      <ResearchRoutes />
-    </ResearchStoreContext.Provider>
-  )
 }

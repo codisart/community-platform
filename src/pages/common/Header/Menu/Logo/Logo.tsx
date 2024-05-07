@@ -1,68 +1,59 @@
-import React from 'react'
-import theme from 'src/themes/styled.theme'
-import { Link, Flex, Image } from 'rebass/styled-components'
-import styled from 'styled-components'
-
-import PPLogo from 'src/assets/images/precious-plastic-logo-official.svg'
-import Text from 'src/components/Text'
+import { Link } from 'react-router-dom'
+import { observer } from 'mobx-react'
+import { useCommonStores } from 'src/common/hooks/useCommonStores'
 import { VERSION } from 'src/config/config'
+import { Box, Flex, Image, Text } from 'theme-ui'
 
-interface IProps {
-  isMobile?: boolean
-}
+const Logo = observer(() => {
+  const { themeStore } = useCommonStores().stores
 
-const LogoContainer = styled(Flex)`
-  align-items: center;
-  position: relative;
-  padding: 10px 0;
+  const name = themeStore?.currentTheme.siteName
+  const logo = themeStore?.currentTheme.logo
 
-  @media only screen and (min-width: ${theme.breakpoints[1]}) {
-    margin-bottom: -50px;
-    padding: 0;
-  }
-`
+  const nameAndVersion = `${name} logo ${VERSION}`
+  const logoSize = [50, 50, 100]
 
-export class Logo extends React.Component<IProps> {
-  // eslint-disable-next-line
-  constructor(props: any) {
-    super(props)
-  }
-  render() {
-    return (
-      <>
-        <LogoContainer>
-          <Link
-            sx={{ zIndex: 1000, display: 'flex', alignItems: 'center' }}
-            color="black"
-            ml={[0, 4]}
-            href="/"
-          >
-            <Flex
-              sx={{
-                width: ['50px', '50px', '100px'],
-                height: ['50px', '50px', '100px'],
-              }}
-            >
-              <Image
-                src={PPLogo}
-                width={[50, 50, 100]}
-                height={[50, 50, 100]}
-                alt={'PP Logo v' + VERSION}
-                title={'PP Logo v' + VERSION}
-              />
-            </Flex>
-            <Text
-              className="sr-only"
-              ml={2}
-              display={['none', 'none', 'block']}
-            >
-              Precious Plastic
-            </Text>
-          </Link>
-        </LogoContainer>
-      </>
-    )
-  }
-}
+  return (
+    <Box
+      sx={{
+        py: [2, 2, 0], // padding on y axes ( top & bottom )
+        marginBottom: [0, 0, '-50px'],
+        position: 'relative',
+      }}
+    >
+      <Link to="/">
+        <Flex
+          ml={[0, 4]}
+          sx={{
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            width: logoSize,
+            height: logoSize,
+          }}
+        >
+          <Image
+            loading="lazy"
+            src={logo}
+            sx={{
+              width: logoSize,
+              height: logoSize,
+            }}
+            alt={nameAndVersion}
+            title={nameAndVersion}
+          />
+        </Flex>
+        <Text
+          className="sr-only"
+          ml={2}
+          sx={{ display: ['none', 'none', 'block'] }}
+          color="black"
+        >
+          {name}
+        </Text>
+      </Link>
+    </Box>
+  )
+})
 
 export default Logo

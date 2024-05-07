@@ -1,52 +1,53 @@
-import { observable, action, makeObservable } from 'mobx'
-import {
-  IMapPin,
-  IBoundingBox,
-  IMapGrouping,
-  IMapPinWithDetail,
-  IMapPinDetail,
-} from 'src/models/maps.models'
-import { IDBEndpoint } from 'src/models/common.models'
-import { RootStore } from '..'
-import { Subscription } from 'rxjs'
-import { ModuleStore } from '../common/module.store'
-import { getUserAvatar } from '../User/user.store'
-import { MAP_GROUPINGS } from './maps.groupings'
-import { generatePins, generatePinDetails } from 'src/mocks/maps.mock'
-import { IUserPP } from 'src/models/user_pp.models'
-import { IUploadedFileMeta } from '../storage'
+import { action, makeObservable, observable } from 'mobx'
+import { IModerationStatus } from 'oa-shared'
+import { logger } from 'src/logger'
 import {
   hasAdminRights,
+  isAllowedToPin,
   needsModeration,
-  isAllowToPin,
 } from 'src/utils/helpers'
 
-// NOTE - toggle below variable to use larger mock dataset
-const IS_MOCK = false
-const MOCK_PINS = generatePins(250)
+import { ModuleStore } from '../common/module.store'
+import { getUserAvatar } from '../User/user.store'
+import { filterMapPinsByType } from './filter'
+import { MAP_GROUPINGS } from './maps.groupings'
+
+import type { IDBEndpoint } from 'src/models'
+import type {
+  IBoundingBox,
+  IMapGrouping,
+  IMapPin,
+  IMapPinDetail,
+  IMapPinType,
+  IMapPinWithDetail,
+} from 'src/models/maps.models'
+import type { IUserPP } from 'src/models/userPreciousPlastic.models'
+import type { IRootStore } from '../RootStore'
+import type { IUploadedFileMeta } from '../storage'
+
+type IFilterToRemove = IMapPinType | undefined
+
 const COLLECTION_NAME: IDBEndpoint = 'mappins'
 export class MapsStore extends ModuleStore {
-  mapPins$: Subscription
+  @observable
+  public activePinFilters: Array<IMapGrouping> = []
+  @observable
+  public activePin: IMapPin | IMapPinWithDetail | undefined = undefined
+  @observable
+  private mapPins: Array<IMapPin> = []
+  @observable
+  public filteredPins: Array<IMapPin> = []
   // eslint-disable-next-line
-  constructor(rootStore: RootStore) {
+  constructor(rootStore: IRootStore) {
     super(rootStore)
     makeObservable(this)
   }
 
-  @observable
-  public activePinFilters: Array<IMapGrouping> = []
-
-  @observable
-  public activePin: IMapPin | IMapPinWithDetail | undefined = undefined
-
-  @observable
-  private mapPins: Array<IMapPin> = []
-
-  @observable
-  public filteredPins: Array<IMapPin> = []
-
   @action
-  private processDBMapPins(pins: IMapPin[]) {
+  private processDBMapPins(
+    pins: IMapPin[],
+    filterToRemove: IFilterToRemove = undefined,
+  ) {
     if (pins.length === 0) {
       this.mapPins = []
       return
@@ -56,42 +57,54 @@ export class MapsStore extends ModuleStore {
     // HACK - ARH - 2019/12/09 filter unaccepted pins, should be done serverside
     const activeUser = this.activeUser
     const isAdmin = hasAdminRights(activeUser)
-    pins = pins.filter(p => {
-      const isPinAccepted = p.moderation === 'accepted'
-      const wasCreatedByUser = activeUser && p._id === activeUser.userName
-      const isAdminAndAccepted = isAdmin && p.moderation !== 'rejected'
-      return p.type && (isPinAccepted || wasCreatedByUser || isAdminAndAccepted)
-    })
-    if (IS_MOCK) {
-      pins = MOCK_PINS
-    }
+
+    pins = pins
+      .filter((p) => {
+        const isDeleted = p._deleted || false
+        const isPinAccepted = p.moderation === IModerationStatus.ACCEPTED
+        const wasCreatedByUser = activeUser && p._id === activeUser.userName
+        const isAdminAndAccepted =
+          isAdmin && p.moderation !== IModerationStatus.REJECTED
+
+        return (
+          p.type &&
+          !isDeleted &&
+          (isPinAccepted || wasCreatedByUser || isAdminAndAccepted)
+        )
+      })
+      .map((p) => {
+        return { ...p, verified: this.userStore.verifiedUsers[p._id] === true }
+      })
     this.mapPins = pins
-    this.filteredPins = this.mapPins
+
+    const filters = this.activePinFilters
+      .filter(({ type }) => type !== filterToRemove)
+      .map(({ subType, type }) => (subType ? subType : type))
+    this.setActivePinFilters(filters)
   }
 
+  /* eslint-disable @typescript-eslint/no-unused-vars */
+  /** TODO CC 2021-05-28 review if still useful to keep */
   @action
   public setMapBoundingBox(boundingBox: IBoundingBox) {
     // this.recalculatePinCounts(boundingBox)
   }
-
   @action
-  public async retrieveMapPins() {
+  public async retrieveMapPins(filterToRemove: IFilterToRemove = undefined) {
     // TODO: make the function accept a bounding box to reduce load from DB
-    /*
-       TODO: unaccepted pins should be filtered in DB, before reaching the client
-             It would need to modifiy:
-              - stream in stores/databaseV2/clients/firestore.tsx
-              - streamCollection in stores/databaseV2/clients/firestore.tsx
-             to support where clause.
-    */
-    this.mapPins$ = this.db
-      .collection<IMapPin>(COLLECTION_NAME)
-      .stream(pins => {
-        // TODO - make more efficient by tracking only new pins received and updating
-        if (pins.length !== this.mapPins.length) {
-          this.processDBMapPins(pins)
-        }
-      })
+
+    if (this.mapPins?.length > 0) {
+      // we already fetched pins
+      return
+    }
+
+    // TODO: the client-side filtering done at `processDBMapPins` should be here
+    this.db.collection<IMapPin>(COLLECTION_NAME).syncLocally(
+      (update) => {
+        this.processDBMapPins(update, filterToRemove)
+      },
+      { keepAlive: false },
+    )
   }
 
   @action
@@ -107,18 +120,8 @@ export class MapsStore extends ModuleStore {
       return
     }
 
-    const mapPins = this.filterMapPinsByType(filters)
+    const mapPins = filterMapPinsByType(this.mapPins, filters)
     this.filteredPins = mapPins
-  }
-
-  private filterMapPinsByType(filters: Array<string>) {
-    // filter pins to include matched pin type or subtype
-    const filteredMapPins = this.mapPins.filter(pin => {
-      return pin.subType
-        ? filters.includes(pin.subType)
-        : filters.includes(pin.type)
-    })
-    return filteredMapPins
   }
 
   /**
@@ -128,78 +131,82 @@ export class MapsStore extends ModuleStore {
    * set undefined to remove any active popup
    */
   @action
-  public async setActivePin(pin?: IMapPin) {
+  public async setActivePin(pin?: IMapPin | IMapPinWithDetail) {
+    // HACK - CC - 2021-07-14 ignore hardcoded pin details, should be retrieved
+    // from profile on open instead (needs cleaning from DB)
+    if (pin && Object.prototype.hasOwnProperty.call(pin, 'detail')) {
+      delete pin['detail']
+    }
     this.activePin = pin
     if (pin) {
-      const detail: IMapPinDetail = IS_MOCK
-        ? generatePinDetails(pin)
-        : await this.getUserProfilePin(pin._id)
-      this.activePin = { ...pin, detail }
+      const pinWithDetail = await this.getPinDetail(pin)
+      this.activePin = pinWithDetail
     }
+  }
+  // call additional action when pin detail received to inform mobx correctly of update
+  private async getPinDetail(pin: IMapPin) {
+    const detail: IMapPinDetail = await this.getUserProfilePin(pin._id)
+    const pinWithDetail: IMapPinWithDetail = { ...pin, detail }
+    return pinWithDetail
   }
 
   // get base pin geo information
-  public async getPin(id: string) {
+  public async getPin(id: string, source: 'server' | 'cache' = 'cache') {
     const pin = await this.db
       .collection<IMapPin>(COLLECTION_NAME)
       .doc(id)
-      .get()
-    /*
-    // Doesn't work on page load: activeUser is not populated ...
-    if(pin && (pin.moderation!='accepted' && !hasAdminRights(this.activeUser))){
-      return undefined
-    }
-*/
+      .get(source)
+    logger.debug({ pin }, 'MapsStore.getPin')
     return pin as IMapPin
   }
 
-  // add new pin or update existing
-  public async setPin(pin: IMapPin) {
-    // generate standard doc meta
-    if (!isAllowToPin(pin, this.activeUser)) {
-      return false
-    }
-    return this.db
-      .collection(COLLECTION_NAME)
-      .doc(pin._id)
-      .set(pin)
-  }
-
-  // Moderate Pin
-  public async moderatePin(pin: IMapPin) {
-    if (!hasAdminRights(this.activeUser)) {
-      return false
-    }
-    this.setPin(pin)
-  }
   public needsModeration(pin: IMapPin) {
     return needsModeration(pin, this.activeUser)
   }
+
   public canSeePin(pin: IMapPin) {
-    return pin.moderation === 'accepted' || isAllowToPin(pin, this.activeUser)
+    return (
+      pin.moderation === IModerationStatus.ACCEPTED ||
+      isAllowedToPin(pin, this.activeUser)
+    )
   }
 
   public async setUserPin(user: IUserPP) {
+    const type = user.profileType || 'member'
+    const existingPin = await this.getPin(user.userName, 'server')
+    const existingModeration = existingPin?.moderation
+    const existingPinType = existingPin?.type
+
+    let moderation: IModerationStatus = existingModeration
+
+    // Member pins do not require moderation.
+    if (type === 'member') {
+      moderation = IModerationStatus.ACCEPTED
+    }
+
+    // Require re-moderation for non-member pins if pin type changes or if pin was not previously accepted.
+    if (
+      type !== 'member' &&
+      (existingModeration !== IModerationStatus.ACCEPTED ||
+        existingPinType !== type)
+    ) {
+      moderation = IModerationStatus.AWAITING_MODERATION
+    }
+
     const pin: IMapPin = {
       _id: user.userName,
+      _deleted: !user.location?.latlng,
       location: user.location!.latlng,
-      type: user.profileType ? user.profileType : 'member',
-      moderation: 'awaiting-moderation',
+      type,
+      moderation,
+      verified: user.verified,
     }
-    if (user.workspaceType) {
+
+    if (type !== 'member' && user.workspaceType) {
       pin.subType = user.workspaceType
     }
-    console.log('setting user pin', pin)
-    await this.db
-      .collection<IMapPin>(COLLECTION_NAME)
-      .doc(pin._id)
-      .set(pin)
-  }
-
-  public removeSubscriptions() {
-    if (this.mapPins$) {
-      this.mapPins$.unsubscribe()
-    }
+    logger.debug('setting user pin', pin)
+    await this.db.collection<IMapPin>(COLLECTION_NAME).doc(pin._id).set(pin)
   }
 
   // return subset of profile info used when displaying map pins
@@ -208,11 +215,13 @@ export class MapsStore extends ModuleStore {
     if (!u) {
       return {
         heroImageUrl: '',
-        lastActive: '',
         profilePicUrl: '',
         shortDescription: '',
         name: username,
+        displayName: username,
         profileUrl: `${window.location.origin}/u/${username}`,
+        verifiedBadge: false,
+        country: null,
       }
     }
     const avatar = getUserAvatar(username)
@@ -223,43 +232,17 @@ export class MapsStore extends ModuleStore {
 
     return {
       heroImageUrl,
-      lastActive: u._lastActive ? u._lastActive : u._modified,
       profilePicUrl: avatar,
       shortDescription: u.mapPinDescription ? u.mapPinDescription : '',
       name: u.userName,
+      displayName: u.displayName,
       profileUrl: `${window.location.origin}/u/${u.userName}`,
+      verifiedBadge: !!u.badges?.verified,
+      country: u.location?.countryCode || u.country?.toLowerCase() || null,
     }
   }
   @action
-  public getPinsNumberByFilterType(filter: Array<string>) {
-    const pinsNumber = this.filterMapPinsByType(filter)
-    return pinsNumber.length
+  public getPinsNumberByFilterType(filter: Array<string>): number {
+    return filterMapPinsByType(this.mapPins, filter).length
   }
 }
-
-/**********************************************************************************
- *  Deprecated - CC - 2019/11/04
- *
- * The code below was previously used to help calculate the number of pins currently
- * within view, however not fully implemented. It is retained in case this behaviour
- * is wanted in the future
- *********************************************************************************/
-
-// private recalculatePinCounts(boundingBox: BoundingBox) {
-//   const pinTypeMap = this.availablePinFilters.reduce(
-//     (accumulator, current) => {
-//       current.count = 0
-//       if (accumulator[current.type] === undefined) {
-//         accumulator[current.type] = current
-//       }
-//       return accumulator
-//     },
-//     {} as Record<string, IPinType>,
-//   )
-
-//   this.mapPins.forEach(pin => {
-//     if (insideBoundingBox(pin.location as LatLng, boundingBox)) {
-//       pinTypeMap[pin.type].count++
-//     }
-//   })
-// }
